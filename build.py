@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+"""
+Build a single self-contained index.html.
+
+- Pre-renders Mermaid blocks to SVG (light + dark) via mmdc, with on-disk caching
+- Splits HTML / CSS / JS into assets/ for maintainability
+- Computes per-chapter reading time
+"""
+import json
+import re
+import hashlib
+import subprocess
+import datetime
+from pathlib import Path
+
+HERE = Path(__file__).parent
+ASSETS = HERE / "assets"
+CACHE = HERE / "cache" / "mermaid"
+CACHE.mkdir(parents=True, exist_ok=True)
+
+NAV = [
+    ("readme",     "总览",     "〇", "总览 · Overview"),
+    ("roadmap",    "路线图",   "◎", "九阶路线图"),
+    ("basics",     "基础",     "·", "训练基础 · 从 CV 到文本训练"),
+    ("phase0",     "全景",     "0", "GLM-5.1 架构 & 全景对比"),
+    ("phase1",     "数据",     "1", "预训练数据 pipeline"),
+    ("phase2",     "架构",     "2", "预训练架构与实操"),
+    ("phase3",     "长上下文", "3", "中期训练 & 长上下文"),
+    ("phase4",     "微调",     "4", "SFT 与 Agent 轨迹"),
+    ("phase5",     "强化学习", "5", "RL · RLHF / RLVR / Agentic"),
+    ("phase6",     "评测",     "6", "评测体系"),
+    ("phase7",     "部署",     "7", "推理部署优化"),
+    ("phase8",     "应用",     "8", "Coding Agent 应用"),
+    ("lab",        "实验",     "✦", "实验册 · 30 分钟可跑的 A vs B 对比"),
+    ("outro",      "结语",     "★", "结语 · 从读完到真正上手"),
+    ("glossary",   "索引",     "▣", "概念索引 · Glossary"),
+    ("references", "参考",     "❉", "参考文献"),
+]
+
+FILES = {
+    "readme":     "README.md",
+    "roadmap":    "ROADMAP.md",
+    "basics":     "phase_basics_training.md",
+    "phase0":     "phase0_foundation.md",
+    "phase1":     "phase1_data_pipeline.md",
+    "phase2":     "phase2_pretraining.md",
+    "phase3":     "phase3_midtraining_longcontext.md",
+    "phase4":     "phase4_sft.md",
+    "phase5":     "phase5_rl.md",
+    "phase6":     "phase6_evaluation.md",
+    "phase7":     "phase7_deployment.md",
+    "phase8":     "phase8_agent_apps.md",
+    "lab":        "phase_lab.md",
+    "outro":      "phase_outro.md",
+    "glossary":   "phase_glossary.md",
+    "references": "phase_references.md",
+}
+
+MMDC = HERE / "node_modules" / ".bin" / "mmdc"
+CFG_LIGHT = ASSETS / "mermaid-light.json"
+CFG_DARK = ASSETS / "mermaid-dark.json"
+
+# Match a ```mermaid ... ``` fenced block (multiline)
+MERMAID_RE = re.compile(r'^```mermaid\s*\n([\s\S]+?)^```\s*$', re.MULTILINE)
+
+
+def render_mermaid(source: str, theme: str) -> tuple[str, bool]:
+    """Render mermaid source to SVG string, cached on disk by content hash.
+
+    Returns (svg_string, ok_flag).
+    """
+    cfg = CFG_LIGHT if theme == "light" else CFG_DARK
+    h = hashlib.sha256((source + theme).encode("utf-8")).hexdigest()[:16]
+    out = CACHE / f"{h}-{theme}.svg"
+    if out.exists():
+        return out.read_text(encoding="utf-8"), True
+
+    inp = CACHE / f"{h}.mmd"
+    inp.write_text(source, encoding="utf-8")
+    cmd = [
+        str(MMDC),
+        "-i", str(inp),
+        "-o", str(out),
+        "-c", str(cfg),
+        "-b", "transparent",
+        "--quiet",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0 or not out.exists():
+        err = (result.stderr or result.stdout or "").strip().splitlines()
+        err_short = " | ".join(err[-3:]) if err else "unknown error"
+        print(f"  ! mermaid render failed ({theme}): {err_short}")
+        # Build a visible fallback inline SVG with the error text
+        msg = f"Mermaid render failed ({theme}): {err_short}"
+        msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        fallback = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 80">'
+            f'<rect width="800" height="80" fill="#fff5e6" stroke="#a52619"/>'
+            f'<text x="20" y="32" fill="#a52619" font-family="monospace" font-size="13">'
+            f'⚠ {msg[:90]}</text>'
+            f'<text x="20" y="56" fill="#a52619" font-family="monospace" font-size="11">'
+            f'(see source for diagram)</text>'
+            f'</svg>'
+        )
+        return fallback, False
+    return out.read_text(encoding="utf-8"), True
+
+
+_SVG_CLASS_RE = re.compile(r'<svg\b([^>]*)>')
+_VIEWBOX_RE = re.compile(r'viewBox="\s*[\-0-9.]+\s+[\-0-9.]+\s+([0-9.]+)\s+([0-9.]+)"')
+
+
+def aspect_class(svg: str) -> str:
+    """Return an aspect-* class based on viewBox W/H ratio."""
+    m = _VIEWBOX_RE.search(svg)
+    if not m:
+        return "aspect-normal"
+    w, h = float(m.group(1)), float(m.group(2))
+    if h <= 0:
+        return "aspect-normal"
+    r = w / h
+    if r >= 7.0:
+        return "aspect-very-wide"   # let overflow horizontally
+    if r >= 2.0:
+        return "aspect-wide"        # full width, normal scaling
+    if r <= 0.4:
+        return "aspect-very-tall"   # cap height
+    if r <= 0.7:
+        return "aspect-tall"        # softer height cap
+    return "aspect-normal"
+
+
+def post_process_svg(svg: str, css_class: str) -> str:
+    """Strip explicit width/height, add CSS classes (theme + aspect) to root <svg>."""
+    classes = f"{css_class} {aspect_class(svg)}"
+
+    def fix_root(match):
+        attrs = match.group(1)
+        # Drop explicit width / height attributes (let CSS control)
+        attrs = re.sub(r'\s(?:width|height)="[^"]*"', '', attrs)
+        # Drop inline style that might cap max-width
+        attrs = re.sub(r'\sstyle="[^"]*"', '', attrs)
+        # Add or extend class
+        if 'class="' in attrs:
+            attrs = re.sub(r'class="([^"]*)"', f'class="\\1 {classes}"', attrs, count=1)
+        else:
+            attrs += f' class="{classes}"'
+        return f'<svg{attrs}>'
+    return _SVG_CLASS_RE.sub(fix_root, svg, count=1)
+
+
+def replace_mermaid_blocks(md: str) -> tuple[str, int, int]:
+    """Replace ```mermaid blocks with pre-rendered <div class="mermaid-block"> HTML.
+    Returns (new_md, total_blocks, failed_blocks).
+    """
+    total = 0
+    failed = 0
+
+    def repl(m):
+        nonlocal total, failed
+        total += 1
+        source = m.group(1).rstrip()
+        light_svg, ok1 = render_mermaid(source, "light")
+        dark_svg, ok2 = render_mermaid(source, "dark")
+        if not (ok1 and ok2):
+            failed += 1
+        light = post_process_svg(light_svg, "mermaid-svg-light")
+        dark = post_process_svg(dark_svg, "mermaid-svg-dark")
+        # Inline raw HTML; surround with blank lines so marked treats as HTML block
+        return f'\n<div class="mermaid-block">{light}{dark}</div>\n'
+    new_md = MERMAID_RE.sub(repl, md)
+    return new_md, total, failed
+
+
+# Cross-reference linking: turn "Phase N" / "phaseN" prose mentions into
+# clickable anchors pointing to the corresponding nav target. We skip code
+# blocks, inline code, and the SVG mermaid wrappers we just produced.
+_XREF_PHASE_RE = re.compile(r'(?<!\[)\bPhase\s*([0-8])\b(?![\]0-9])')
+_XREF_BASICS_RE = re.compile(r'(?<!\[)(序章|训练基础)(?![\]])')
+
+
+def add_xref_links(md: str) -> str:
+    parts = re.split(
+        r'(```[\s\S]*?```|`[^`\n]+`|<div class="mermaid-block">[\s\S]*?</div>)',
+        md,
+    )
+    out = []
+    for part in parts:
+        if (part.startswith('```')
+                or (part.startswith('`') and not part.startswith('```'))
+                or part.startswith('<div class="mermaid-block"')):
+            out.append(part)
+            continue
+        # Process line by line so we skip headings & table separators
+        lines = part.split('\n')
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if not stripped or stripped.startswith('#') or stripped.startswith('|---'):
+                continue
+            # Don't link inside markdown link text or url
+            line = _XREF_PHASE_RE.sub(r'[Phase \1](#phase\1)', line)
+            lines[i] = line
+        out.append('\n'.join(lines))
+    return ''.join(out)
+
+
+# When README is rendered as the site's "总览" chapter, the "▶ 在线阅读" badge
+# is reversed (the reader is already on the site). Swap it for a CTA that links
+# back to the GitHub source.
+_README_SITE_CTA_OLD = (
+    '[![Live Site](https://img.shields.io/badge/'
+    '%E2%96%B6_%E5%9C%A8%E7%BA%BF%E9%98%85%E8%AF%BB-a52619?'
+    'style=for-the-badge)](https://sqhuang.github.io/coding-llm-handbook/)'
+)
+_README_SITE_CTA_NEW = (
+    '[![GitHub Repo](https://img.shields.io/badge/'
+    '%E2%96%B6_GitHub_%E4%BB%93%E5%BA%93-1c1814?'
+    'style=for-the-badge&logo=github&logoColor=white)]'
+    '(https://github.com/sqhuang/coding-llm-handbook)'
+)
+
+
+def adapt_readme_for_site(md: str) -> str:
+    """Replace the 'Live Site' CTA with an icon-only GitHub link when on the site.
+
+    The README serves both as the GitHub repo landing page AND as the site's
+    总览 chapter. The two contexts need flipped CTAs. On the site we render a
+    minimal icon-only octocat that links back to the repo source.
+    """
+    patterns = [
+        '[![Live Site](https://img.shields.io/badge/▶_在线阅读-a52619?style=for-the-badge)](https://sqhuang.github.io/coding-llm-handbook/)',
+    ]
+    # Icon-only octocat from SimpleIcons CDN — two color variants so the
+    # logo stays visible in both light and dark site themes.
+    replacement = (
+        '<a class="gh-icon-link" href="https://github.com/sqhuang/coding-llm-handbook" '
+        'aria-label="GitHub" title="View source on GitHub">'
+        '<img class="gh-icon gh-icon-light" src="https://cdn.simpleicons.org/github/1c1814" '
+        'height="36" alt="GitHub"/>'
+        '<img class="gh-icon gh-icon-dark" src="https://cdn.simpleicons.org/github/e8dfcb" '
+        'height="36" alt="GitHub"/>'
+        '</a>'
+    )
+    for p in patterns:
+        if p in md:
+            md = md.replace(p, replacement)
+            break
+    return md
+
+
+def estimate_reading_time(md: str) -> int:
+    """Rough reading time in minutes: 350 CJK / min + 220 words / min."""
+    cjk = len(re.findall(r'[一-鿿]', md))
+    words = len(re.findall(r'\b\w+\b', re.sub(r'[一-鿿]', ' ', md)))
+    return max(1, round(cjk / 350 + words / 220))
+
+
+def build():
+    print("→ Loading template assets")
+    template = (ASSETS / "template.html").read_text(encoding="utf-8")
+    style_css = (ASSETS / "style.css").read_text(encoding="utf-8")
+    app_js = (ASSETS / "app.js").read_text(encoding="utf-8")
+
+    print("→ Reading markdown + pre-rendering Mermaid blocks")
+    if not MMDC.exists():
+        print(f"  ! mmdc not found at {MMDC} — run: npm install --save-dev @mermaid-js/mermaid-cli")
+        return
+
+    content = {}
+    reading_times = {}
+    total_mermaid = 0
+    total_failed = 0
+    for k, v in FILES.items():
+        md = (HERE / v).read_text(encoding="utf-8")
+        # README is also the GitHub landing page — swap the site CTA so the
+        # rendered "总览" chapter on the site links back to GitHub instead of
+        # back to itself.
+        if k == "readme":
+            md = adapt_readme_for_site(md)
+        n_mermaid = len(MERMAID_RE.findall(md))
+        if n_mermaid:
+            print(f"  · {k}: {n_mermaid} mermaid block(s)")
+            md, n, fail = replace_mermaid_blocks(md)
+            total_mermaid += n
+            total_failed += fail
+        # Reading time should be based on prose length, before xref bloat
+        reading_times[k] = estimate_reading_time(md)
+        # Convert "Phase N" / cross-refs into clickable anchors
+        md = add_xref_links(md)
+        content[k] = md
+
+    print("→ Assembling HTML")
+    nav_json = json.dumps(
+        [{"id": n[0], "label": n[1], "num": n[2], "title": n[3]} for n in NAV],
+        ensure_ascii=False,
+    )
+    # Escape `</` to keep JSON intact inside <script>...</script>
+    content_json = json.dumps(content, ensure_ascii=False).replace("</", "<\\/")
+    meta_json = json.dumps({
+        "readingTime": reading_times,
+        "buildTime":   datetime.datetime.now().isoformat(timespec="seconds"),
+    }, ensure_ascii=False)
+
+    html = template
+    html = html.replace("/*__STYLE_CSS__*/",   style_css)
+    html = html.replace("/*__APP_JS__*/",      app_js)
+    html = html.replace("/*__NAV_JSON__*/",    nav_json)
+    html = html.replace("/*__CONTENT_JSON__*/", content_json)
+    html = html.replace("/*__META_JSON__*/",   meta_json)
+
+    out = HERE / "index.html"
+    out.write_text(html, encoding="utf-8")
+
+    summary = f"wrote {out.relative_to(HERE)} ({out.stat().st_size // 1024} KB)"
+    summary += f" · {total_mermaid} mermaid block(s)"
+    if total_failed:
+        summary += f" · {total_failed} FAILED"
+    print(f"✓ {summary}")
+
+
+if __name__ == "__main__":
+    build()

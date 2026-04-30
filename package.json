@@ -1,0 +1,16 @@
+{
+  "name": "codellm",
+  "version": "1.0.0",
+  "description": "> 研究对象：**GLM-5.1** (Z.ai, 2026-04-07, 754B MoE-DSA, MIT) > 辅线参照：GLM-4.5 ARC / DeepSeek-Coder-V2 / Qwen3-Coder / OpenCoder / StarCoder2 > 目标：(1) 理解全栈 → (2) 小规模复现训练 → (3) 搭建自建 coding agent",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^11.12.0"
+  }
+}

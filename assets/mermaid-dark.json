@@ -1,0 +1,44 @@
+{
+  "theme": "base",
+  "fontFamily": "Noto Serif SC, Fraunces, serif",
+  "flowchart": {
+    "htmlLabels": true,
+    "curve": "basis",
+    "padding": 20,
+    "nodeSpacing": 50,
+    "rankSpacing": 70,
+    "diagramPadding": 16
+  },
+  "sequence": {
+    "actorMargin": 60,
+    "messageAlign": "center",
+    "mirrorActors": false,
+    "boxMargin": 12,
+    "noteMargin": 12,
+    "messageMargin": 36
+  },
+  "themeVariables": {
+    "fontSize":             "24px",
+    "background":           "#14110d",
+    "primaryColor":         "#1a1611",
+    "primaryTextColor":     "#e8dfcb",
+    "primaryBorderColor":   "#e0554a",
+    "secondaryColor":       "#221c16",
+    "secondaryTextColor":   "#c5b89e",
+    "secondaryBorderColor": "#7c715d",
+    "tertiaryColor":        "#0f0c09",
+    "tertiaryTextColor":    "#e8dfcb",
+    "tertiaryBorderColor":  "#7c715d",
+    "lineColor":            "#e0554a",
+    "textColor":            "#e8dfcb",
+    "mainBkg":              "#1a1611",
+    "nodeBkg":              "#1a1611",
+    "nodeTextColor":        "#e8dfcb",
+    "clusterBkg":           "#0f0c09",
+    "clusterBorder":        "#7c715d",
+    "edgeLabelBackground":  "#1a1611",
+    "labelBoxBkgColor":     "#1a1611",
+    "labelBoxBorderColor":  "#e0554a",
+    "labelTextColor":       "#e8dfcb"
+  }
+}

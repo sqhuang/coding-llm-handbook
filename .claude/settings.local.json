@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(python3 *)",
+      "Bash(open *)",
+      "Bash(awk '/^```mermaid$/,/^```$/' phase2_pretraining.md)",
+      "Bash(awk '/^```mermaid$/,/^```$/' phase_basics_training.md)",
+      "Bash(awk *)"
+    ]
+  }
+}

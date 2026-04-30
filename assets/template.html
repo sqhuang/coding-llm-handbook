@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-fontsize="medium">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coding LLM Cookbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&family=Noto+Serif+SC:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link id="hljs-light" rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
+<link id="hljs-dark"  rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css" disabled>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>/*__STYLE_CSS__*/</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-text">
+        <div class="title">Coding LLM Cookbook</div>
+        <div class="subtitle">From Pretrain to Agent</div>
+      </div>
+    </div>
+
+    <div class="search">
+      <span class="search-icon">⌕</span>
+      <input type="text" class="search-input" id="search-input" placeholder="检索全篇..." autocomplete="off" spellcheck="false">
+      <span class="kbd">/</span>
+      <div class="search-results" id="search-results"></div>
+    </div>
+
+    <nav class="nav" aria-label="章节导航">
+      <ul class="nav-list" id="nav-list"></ul>
+    </nav>
+
+    <div class="controls">
+      <button class="ctrl-btn" id="theme-btn" title="切换主题">明 · 暗</button>
+      <button class="ctrl-btn" id="font-btn"  title="调整字号">字 · 号</button>
+      <button class="ctrl-btn" id="print-btn" title="打印或导出 PDF">打印</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <article class="content" id="content"></article>
+    <nav class="page-nav" id="page-nav" aria-label="章节翻页"></nav>
+  </main>
+
+  <aside class="toc" id="toc" aria-label="本页目录"></aside>
+</div>
+
+<div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+
+<script id="content-data" type="application/json">/*__CONTENT_JSON__*/</script>
+<script id="nav-data"     type="application/json">/*__NAV_JSON__*/</script>
+<script id="meta-data"    type="application/json">/*__META_JSON__*/</script>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+
+<script>/*__APP_JS__*/</script>
+</body>
+</html>
