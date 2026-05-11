@@ -1,5 +1,12 @@
 # Phase 7：GLM-5.1 / GLM-4.5 推理部署优化深度笔记
 
+> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+
+> **⚡ 三句话要点**
+> 1. 8×H200 甜点配置：**SGLang + FP8 + MTP speculative decoding + RadixAttention**（前缀缓存），单 Pod 能跑到 ~80% 理论吞吐上限。
+> 2. 消费级 **KTransformers + 1×4090 + 1TB DDR5 + SPR AMX**，跑 GLM-5.1 ~8 tok/s——能离线跑，但不够 agent 在线用。
+> 3. 引擎选型分流：**MoE + long-context → SGLang**；通用 + 多模 + ECC 严格 → vLLM；纯 batch 离线 → TensorRT-LLM。
+
 > 目标读者：已有 GPU 推理优化经验的中国 AI 研究者
 > 完成日期：2026-04-22
 > 模型焦点：GLM-5.1（754B total / 40B active，256+1 experts，78 layers，MTP 层内置）、GLM-4.5（355B total / 32B active，160 experts）、GLM-4.5-Air（轻量 MoE 变体）

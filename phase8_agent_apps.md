@@ -1,5 +1,12 @@
 # Phase 8：Coding Agent 应用层深度笔记
 
+> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+
+> **⚡ 三句话要点**
+> 1. 两条路径：**A · 外壳路径**首选 **Roo Code + LiteLLM proxy**，把本地 GLM-5.1 包成 OpenAI-compat 即插即用；**B · 自建路径**走 ReAct + Docker + 6 工具的 300 行骨架。
+> 2. 自建 agent 的"三层栈"：**repo map**（tree-sitter 解析）→ **auto-compact**（长对话摘要）→ **Reflexion**（失败任务自我反思迭代），缺一就在大仓库上崩。
+> 3. **Sandbox 必上**：Docker / Firejail / E2B 三选一，绝不让模型直接对宿主 fs 操作——一次错误的 `rm` 就毁掉测试环境。
+
 > 面向中国 AI 研究者的工程化笔记。目标：(A) 把本地部署的 GLM-5.1 接进成熟的 agent 外壳；(B) 从零构建一个 minimal coding agent，吃透其内部原理。
 >
 > 本笔记假设你已完成 Phase 7（本地模型服务化），即已经把 GLM-5.1 / GLM-4.5-Air 以 OpenAI-compatible API 形式暴露在 `http://localhost:8000/v1`。

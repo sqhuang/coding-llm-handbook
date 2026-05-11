@@ -1,5 +1,12 @@
 # 序 · 训练基础：从 CV 到文本训练的桥接
 
+> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+
+> **⚡ 三句话要点**
+> 1. LLM 训练里的"一条样本"是 chunked + packed token 序列，loss 只在标签 mask 上算，与 CV 一图一标签完全不同。
+> 2. 一个 step 的耗时三大头是 attention（O(L²)）、FFN matmul、optimizer state 读写；显存被 KV cache + activations + optimizer state（FP32 权重 + Adam m/v）瓜分。
+> 3. 三阶段范式 pretrain → SFT → RL 的输入分布、loss 形态、batch 组织方式都不一样，串错任一个都调不通。
+
 > **目标读者**：熟悉 CV 分类训练（ImageNet / ResNet / PyTorch 级别的实操），第一次接触 LLM 训练。
 >
 > **定位**：这一章**不**讲 LLM 架构和数据技巧（那些在 Phase 0-8），只讲最基础的**训练力学**——参数、loss、反传、batch、显存——但在**文本训练**的语境下重新理解一遍。一章读完，你应该能回答：LLM 训练里的"一条样本"到底是什么、loss 怎么算的、一个 step 里 GPU 在干啥、显存被什么吃掉的。

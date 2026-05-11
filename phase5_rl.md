@@ -1,5 +1,12 @@
 # Phase 5 — 强化学习训练（RLHF / RLVR / Agentic RL）深度笔记
 
+> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+
+> **⚡ 三句话要点**
+> 1. **GRPO 扔掉 critic 改用组内 z-score 做 baseline**，显存减半且收敛更稳——DeepSeek-R1 把它打成了 2025-2026 的事实标准。
+> 2. **纯 RLVR 在 agent 方向不够**（单测/编译通过率作奖励对长轨迹太稀疏），必须补 **subgoal shaping** 或 **process signal**。
+> 3. Reward hacking 四大坑：测试覆盖率不够 → 模型刷捷径；RM 训不到位 → policy 漂移；KL 约束太松 → 风格崩；rollout/training 分布偏移 → off-policy bias。
+
 > 适用对象：中文 AI 研究者 / 想复现 coding LLM RL pipeline 的工程师
 > 时间戳：2026-04
 > 主线模型：GLM-5.1 / GLM-4.5 ARC

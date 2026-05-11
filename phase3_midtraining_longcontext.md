@@ -1,5 +1,12 @@
 # Phase 3：Mid-training 与长上下文扩展深度笔记
 
+> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+
+> **⚡ 三句话要点**
+> 1. 长上下文走两段路：**32K 用 YaRN**（NTK-by-parts，按波长分维度插值），**128K+ 用 LongRoPE**（进化搜索每维 rescale 因子）。
+> 2. Mid-training 数据三件套：**repo-level packing 必须按 import 图拓扑排序**（不是随机 shuffle）+ synthetic reasoning 长 CoT + agent 轨迹，序列长度直接拉到 128K。
+> 3. RULER 是验证长上下文"真能用"的关键 benchmark——base 改大会降低长序列 PPL 但短序列 PPL 微涨，所以 mid-training 必须**渐进升级**而非一次切到底。
+
 > 目标：GLM-5.1（官方口径 200K context，agentic 任务支持连续 8 小时运行）
 > 主要参考：GLM-4.5 ARC（arXiv:2508.06471）、YaRN（2309.00071）、LongRoPE（2402.13753）、LongLoRA（2309.12307）、DeepSeek-V3 技术报告、Qwen3 技术报告
 > 面向读者：中国 AI 研究者 / LLM infra 与算法工程师

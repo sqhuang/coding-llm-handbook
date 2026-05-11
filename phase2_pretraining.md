@@ -1,5 +1,12 @@
 # Phase 2：预训练架构与实操深度笔记
 
+> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+
+> **⚡ 三句话要点**
+> 1. DSA 不预先定死稀疏模式——每个 query 动态挑 top-N KV，配 Lightning Indexer 打分；这也是 KV 工作集碎片化的工程根源。
+> 2. 小规模复现首选 **torchtitan**（几千行 PyTorch 原生，MoE/EP/FP8 跟进最快），8×H100 训 1B 量级 MoE 目标 MFU ≥ 35%。
+> 3. 2025 下半年 MoE "新四样"：**Muon** 替代 AdamW、**aux-loss-free routing**（bias 调节专家负载）、**FP8 混合精度**、**repo-level packing**。
+
 > 目标模型：GLM-5.1（754B MoE-DSA）。主线参考：GLM-4.5 技术报告（arXiv 2508.06471），辅以 DeepSeekMoE（2401.06066）、DeepSeek-V3（2412.19437）、DeepSeek-V3.2 Exp (DSA) 的公开材料，以及 Megatron-LM / torchtitan / nanotron 的工程实践。
 >
 > 本笔记面向有 GPU 经验、准备从零跑通一个 0.5B–1.5B MoE coding 小模型的研究者。力求可动手：给配置、给命令、给监控指标。

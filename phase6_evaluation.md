@@ -1,5 +1,12 @@
 # Phase 6 — Coding LLM 评测体系深度笔记
 
+> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+
+> **⚡ 三句话要点**
+> 1. HumanEval / MBPP 已饱和，没区分度；真指标看 **LiveCodeBench 近 3 月**（抗污染）+ **SWE-Bench Verified**（真实 repo 级 bug fix）+ **BigCodeBench**（库调用）。
+> 2. 三层评测最划算：**EvalPlus**（15 min 反馈快速 sanity）+ **LiveCodeBench 近 3 月**（抗污染信号）+ **SWE-Bench Lite 前 50**（真实 agent 信号）。
+> 3. **自建公司内部 SWE-Bench 风格私有评测集**是脱离公开榜单噪声的唯一办法——把内部仓库的 issue/PR 抽成 task，再人工打分。
+
 > 目标读者：想要在本地复跑 benchmark、看懂各家榜单水分、并为自己的小模型建立 baseline 的中文 AI 研究者。
 > 主线：以 HumanEval / EvalPlus / LiveCodeBench / BigCodeBench / SWE-Bench 为骨架，辅以多语言与执行理解。
 > 关键判断：**刷 HumanEval 没意义，SWE-Bench Verified + LiveCodeBench 最新月份才是真指标。**

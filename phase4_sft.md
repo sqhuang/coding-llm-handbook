@@ -1,5 +1,12 @@
 # Phase 4 — SFT 指令微调 + Agent 轨迹（深度笔记）
 
+> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+
+> **⚡ 三句话要点**
+> 1. Agent 能力**必须走轨迹数据**而非纯指令；最小可行配方：**8k OSS-Instruct + 1-3k Claude/GPT sandbox 成功轨迹 + 500 中文通用**，LoRA 2 epoch。
+> 2. **Chat template + loss mask** 是最容易翻车的点——配错的 SFT 模型会"看起来收敛但生成时 system token 串味"，必须先做 mask 可视化自检。
+> 3. 三大框架选型：**LLaMA Factory** 最易上手 / **ms-swift** 对 GLM 全系列原生支持 / **Axolotl** 配置最灵活——三选一，不要混跑。
+
 > 主线：把 **GLM-4.5-Air**（或其他较小的 GLM 变体）从一个"会续写代码的 base 模型"，微调成一个"会遵循指令、会调工具、能被 agent 外壳驱动"的 coding 模型，并为 Phase 5 的 RL 打好基础。
 >
 > 读者定位：熟悉 PyTorch/Transformers，用过 HuggingFace，但没有从 0 搭过 coding SFT pipeline 的中国 AI 研究者。
