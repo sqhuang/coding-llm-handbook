@@ -172,6 +172,21 @@ GLM-5.1 / GLM-4.5 ARC 未公开的细节：
 
 ---
 
+## 勘误与反馈
+
+这份笔记覆盖 30 万字 · 27 个对比实验 · 60 道动手练习——肯定有翻车、过期、口径错位的地方。欢迎指出：
+
+- **发现事实错误 / 命令跑不通 / 链接 404**：开 [GitHub Issue](https://github.com/sqhuang/coding-llm-handbook/issues/new)，标题加 `[Errata]`，正文给出章节锚点（如 `phase2 §3.2`）+ 期望 vs 实际。
+- **补充新论文 / 新工具 / 新数据集**：开 Issue 标 `[New]`，列出资料 + 一句话为什么值得进笔记。
+- **直接改一句话或一段**：欢迎发 PR；超过一节请先开 Issue 对齐方向再写，避免白做。
+- **大改版块（重写整章 / 加新 phase）**：先在 [Discussions](https://github.com/sqhuang/coding-llm-handbook/discussions) 起个帖子。
+
+**承诺响应**：所有 Issue 7 天内有第一次响应；事实错误优先级最高，工具链更新次之，主观品味分歧最后。
+
+每个 phase 顶部都有「📅 主线快照 / 上次核对」日期——如果上次核对超过 90 天且你发现该章某条结论已被新论文/新工具推翻，欢迎直接 PR 把那条结论改掉并把日期推到当天。
+
+---
+
 ## 动手练习
 
 1. 打开 GLM-5.1 在 HuggingFace 的模型卡，把 `config.json` 里的字段（hidden_size、num_experts、q_lora_rank、…）逐项对应到 phase0 §1.1 的参数表，找出至少一处与笔记口径不一致的字段并解释原因。
