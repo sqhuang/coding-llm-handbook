@@ -6,11 +6,13 @@ Build a single self-contained index.html.
 - Splits HTML / CSS / JS into assets/ for maintainability
 - Computes per-chapter reading time
 """
+import concurrent.futures
+import datetime
+import hashlib
 import json
 import re
-import hashlib
 import subprocess
-import datetime
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -62,6 +64,20 @@ CFG_DARK = ASSETS / "mermaid-dark.json"
 
 # Match a ```mermaid ... ``` fenced block (multiline)
 MERMAID_RE = re.compile(r'^```mermaid\s*\n([\s\S]+?)^```\s*$', re.MULTILINE)
+
+# Match `<!-- include: <path> [as <lang>] -->` on its own line.
+# Path is relative to repo root. Optional `as` overrides the fence language
+# (default = file extension).
+INCLUDE_RE = re.compile(
+    r'^[ \t]*<!--\s*include:\s*([^\s]+?)(?:\s+as\s+([A-Za-z0-9_+\-]+))?\s*-->[ \t]*$',
+    re.MULTILINE,
+)
+
+# Reverse map: source markdown filename -> nav id. Used to rewrite cross-file
+# md links into SPA anchors so they resolve in the rendered site. The GitHub
+# README still uses the .md paths (untouched source on disk).
+MD_TO_NAVID = {v: k for k, v in FILES.items()}
+NAV_IDS = set(FILES.keys())
 
 
 def render_mermaid(source: str, theme: str) -> tuple[str, bool]:
@@ -149,6 +165,37 @@ def post_process_svg(svg: str, css_class: str) -> str:
     return _SVG_CLASS_RE.sub(fix_root, svg, count=1)
 
 
+def _mermaid_cache_path(source: str, theme: str) -> Path:
+    h = hashlib.sha256((source + theme).encode("utf-8")).hexdigest()[:16]
+    return CACHE / f"{h}-{theme}.svg"
+
+
+def prewarm_mermaid_cache(all_md: list[str], max_workers: int = 8) -> None:
+    """Render any uncached (block, theme) pairs across all chapters in parallel.
+
+    `replace_mermaid_blocks` is still called per-chapter afterwards, but every
+    `render_mermaid` invocation will now hit the disk cache and return instantly.
+    """
+    misses: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for md in all_md:
+        for m in MERMAID_RE.finditer(md):
+            source = m.group(1).rstrip()
+            for theme in ("light", "dark"):
+                key = (source, theme)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if not _mermaid_cache_path(source, theme).exists():
+                    misses.append(key)
+    if not misses:
+        return
+    print(f"  · pre-rendering {len(misses)} uncached mermaid svg(s) in parallel")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        for _ in ex.map(lambda args: render_mermaid(*args), misses):
+            pass
+
+
 def replace_mermaid_blocks(md: str) -> tuple[str, int, int]:
     """Replace ```mermaid blocks with pre-rendered <div class="mermaid-block"> HTML.
     Returns (new_md, total_blocks, failed_blocks).
@@ -170,6 +217,90 @@ def replace_mermaid_blocks(md: str) -> tuple[str, int, int]:
         return f'\n<div class="mermaid-block">{light}{dark}</div>\n'
     new_md = MERMAID_RE.sub(repl, md)
     return new_md, total, failed
+
+
+# ---------- Include directive: <!-- include: examples/foo.py [as python] -->
+
+_EXT_TO_LANG = {
+    "py": "python", "sh": "bash", "bash": "bash",
+    "js": "javascript", "ts": "typescript",
+    "yaml": "yaml", "yml": "yaml",
+    "json": "json", "toml": "toml",
+    "md": "markdown", "txt": "text",
+    "rs": "rust", "go": "go", "c": "c", "cpp": "cpp", "h": "c",
+    "cu": "cpp",
+}
+
+
+def process_includes(md: str) -> tuple[str, int, list[str]]:
+    """Replace `<!-- include: path [as lang] -->` with a fenced code block
+    holding the referenced file's contents.
+
+    Paths resolve relative to the repo root (HERE). Missing files are kept as
+    a visible error comment and reported back so the build can fail.
+    """
+    n = 0
+    errors: list[str] = []
+
+    def repl(m: re.Match) -> str:
+        nonlocal n
+        rel = m.group(1)
+        lang_override = m.group(2)
+        path = (HERE / rel).resolve()
+        try:
+            path.relative_to(HERE.resolve())
+        except ValueError:
+            errors.append(f"include path escapes repo root: {rel}")
+            return f"<!-- include FAILED (path escapes repo): {rel} -->"
+        if not path.exists():
+            errors.append(f"include target not found: {rel}")
+            return f"<!-- include FAILED (not found): {rel} -->"
+        body = path.read_text(encoding="utf-8").rstrip()
+        lang = lang_override or _EXT_TO_LANG.get(path.suffix.lstrip(".").lower(), "")
+        n += 1
+        # Caption line lets the reader jump to the source file on GitHub
+        caption = f"<sub>📎 来自 [`{rel}`](./{rel})</sub>"
+        return f"{caption}\n\n```{lang}\n{body}\n```"
+
+    new_md = INCLUDE_RE.sub(repl, md)
+    return new_md, n, errors
+
+
+# ---------- Cross-md link rewrite
+
+# Match `[label](./xxxx.md)` or `[label](./xxxx.md#frag)` references.
+_LOCAL_MD_LINK_RE = re.compile(r'\]\(\./([A-Za-z0-9_.\-/]+\.md)(#[^)\s]+)?\)')
+
+
+def rewrite_local_md_links(md: str) -> tuple[str, list[str]]:
+    """Rewrite `](./phase_xxx.md)` into SPA-friendly `](#<navid>)`.
+
+    Inputs that don't resolve to a known nav id are returned as warnings so the
+    author sees the typo before shipping.
+    """
+    warnings: list[str] = []
+
+    # Skip code blocks / inline code (same trick as add_xref_links)
+    parts = re.split(r'(```[\s\S]*?```|`[^`\n]+`)', md)
+    out = []
+    for part in parts:
+        if part.startswith('```') or (part.startswith('`') and not part.startswith('```')):
+            out.append(part)
+            continue
+
+        def repl(m: re.Match) -> str:
+            filename = m.group(1)
+            frag = m.group(2) or ""
+            nav_id = MD_TO_NAVID.get(filename)
+            if not nav_id:
+                warnings.append(f"unknown cross-md target: ./{filename}")
+                return m.group(0)
+            # Drop in-file fragments for now (SPA anchors are per-chapter h-N
+            # ids and aren't author-addressable).
+            return f"](#{nav_id})"
+
+        out.append(_LOCAL_MD_LINK_RE.sub(repl, part))
+    return ''.join(out), warnings
 
 
 # Cross-reference linking: turn "Phase N" / "phaseN" prose mentions into
@@ -248,6 +379,44 @@ def adapt_readme_for_site(md: str) -> str:
     return md
 
 
+# ---------- Anchor / link checker
+
+# Internal anchor: `[label](#xxxx)` not crossing a file boundary.
+_INTERNAL_ANCHOR_RE = re.compile(r'\]\(#([A-Za-z][A-Za-z0-9_\-]*)\)')
+# Remaining `](./...md)` after rewrite = broken local link.
+_RESIDUAL_LOCAL_MD_RE = re.compile(r'\]\(\./[^)]*\.md[^)]*\)')
+
+
+def check_links(content: dict[str, str]) -> tuple[int, list[str]]:
+    """Validate that every internal anchor + cross-md link resolves.
+
+    Returns (external_link_count, errors). Caller decides whether to abort.
+    """
+    errors: list[str] = []
+    external_n = 0
+
+    # Authorable anchors are nav ids (top-level chapter targets). Heading-level
+    # h-N ids are runtime-generated by app.js, so we don't accept them as link
+    # targets in source markdown.
+    valid = set(NAV_IDS)
+
+    for cid, md in content.items():
+        # Skip code blocks
+        parts = re.split(r'(```[\s\S]*?```|`[^`\n]+`)', md)
+        prose = ''.join(
+            p for p in parts
+            if not (p.startswith('```') or (p.startswith('`') and not p.startswith('```')))
+        )
+        for m in _INTERNAL_ANCHOR_RE.finditer(prose):
+            tgt = m.group(1)
+            if tgt not in valid:
+                errors.append(f"[{cid}] unknown anchor #{tgt}")
+        for m in _RESIDUAL_LOCAL_MD_RE.finditer(prose):
+            errors.append(f"[{cid}] residual local-md link: {m.group(0)}")
+        external_n += len(re.findall(r'\]\(https?://', prose))
+    return external_n, errors
+
+
 def estimate_reading_time(md: str) -> int:
     """Rough reading time in minutes: 350 CJK / min + 220 words / min."""
     cjk = len(re.findall(r'[一-鿿]', md))
@@ -266,17 +435,35 @@ def build():
         print(f"  ! mmdc not found at {MMDC} — run: npm install --save-dev @mermaid-js/mermaid-cli")
         return
 
-    content = {}
-    reading_times = {}
-    total_mermaid = 0
-    total_failed = 0
+    # Pass 1 — load raw, run text-level transforms (includes + cross-md link
+    # rewrite). These run before mermaid so that included files can themselves
+    # contain mermaid blocks, and so that link rewrites apply to included text.
+    raw: dict[str, str] = {}
+    total_includes = 0
+    include_errors: list[str] = []
+    link_warnings: list[str] = []
     for k, v in FILES.items():
         md = (HERE / v).read_text(encoding="utf-8")
-        # README is also the GitHub landing page — swap the site CTA so the
-        # rendered "总览" chapter on the site links back to GitHub instead of
-        # back to itself.
         if k == "readme":
             md = adapt_readme_for_site(md)
+        md, n_inc, errs = process_includes(md)
+        if n_inc:
+            print(f"  · {k}: {n_inc} include directive(s)")
+        total_includes += n_inc
+        include_errors.extend(errs)
+        md, warns = rewrite_local_md_links(md)
+        link_warnings.extend(warns)
+        raw[k] = md
+
+    # Pass 2 — pre-warm mermaid cache for any uncached blocks (parallel)
+    prewarm_mermaid_cache(list(raw.values()))
+
+    # Pass 3 — per-chapter mermaid substitution + xrefs + reading time
+    content: dict[str, str] = {}
+    reading_times: dict[str, int] = {}
+    total_mermaid = 0
+    total_failed = 0
+    for k, md in raw.items():
         n_mermaid = len(MERMAID_RE.findall(md))
         if n_mermaid:
             print(f"  · {k}: {n_mermaid} mermaid block(s)")
@@ -288,6 +475,19 @@ def build():
         # Convert "Phase N" / cross-refs into clickable anchors
         md = add_xref_links(md)
         content[k] = md
+
+    # Pass 4 — link validation across the assembled corpus
+    external_n, link_errors = check_links(content)
+    if include_errors or link_errors:
+        print("✗ link/include check FAILED:")
+        for e in include_errors + link_errors:
+            print(f"    {e}")
+        sys.exit(1)
+    if link_warnings:
+        print("⚠ link warnings:")
+        for w in link_warnings:
+            print(f"    {w}")
+    print(f"  · links ok ({external_n} external)")
 
     print("→ Assembling HTML")
     nav_json = json.dumps(
@@ -312,7 +512,7 @@ def build():
     out.write_text(html, encoding="utf-8")
 
     summary = f"wrote {out.relative_to(HERE)} ({out.stat().st_size // 1024} KB)"
-    summary += f" · {total_mermaid} mermaid block(s)"
+    summary += f" · {total_mermaid} mermaid · {total_includes} include · {external_n} ext-link"
     if total_failed:
         summary += f" · {total_failed} FAILED"
     print(f"✓ {summary}")

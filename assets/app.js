@@ -173,6 +173,31 @@
     return false;
   }
 
+  // ---- Per-chapter rendered HTML cache ----
+  // First navigation parses synchronously; adjacent chapters are pre-rendered
+  // on the idle queue so prev/next clicks feel instant.
+  const RENDERED = {};
+  function renderChapter(id) {
+    if (RENDERED[id]) return RENDERED[id];
+    if (!CONTENT[id]) return "";
+    const { md, math } = preprocessMath(CONTENT[id]);
+    let html = marked.parse(md);
+    html = postprocessMath(html, math);
+    RENDERED[id] = html;
+    return html;
+  }
+  function prefetchAdjacent(id) {
+    const idle = window.requestIdleCallback
+      || (cb => setTimeout(cb, 200));
+    const idx = NAV.findIndex(n => n.id === id);
+    const neighbors = [NAV[idx - 1], NAV[idx + 1]].filter(Boolean);
+    neighbors.forEach(n => {
+      if (!RENDERED[n.id]) {
+        idle(() => renderChapter(n.id), { timeout: 2000 });
+      }
+    });
+  }
+
   // ---- Load phase ----
   function load(id, push = true) {
     const item = NAV.find(n => n.id === id);
@@ -184,10 +209,7 @@
     void content.offsetHeight;
     content.style.animation = "";
 
-    const { md, math } = preprocessMath(CONTENT[id]);
-    let html = marked.parse(md);
-    html = postprocessMath(html, math);
-    content.innerHTML = html;
+    content.innerHTML = renderChapter(id);
 
     // breadcrumb (with reading time)
     const minutes = (META.readingTime && META.readingTime[id]) || readingTime(CONTENT[id]);
@@ -245,6 +267,8 @@
     if (!restoreScroll(id)) {
       window.scrollTo({ top: 0, behavior: "instant" });
     }
+
+    prefetchAdjacent(id);
   }
 
   // ---- TOC ----
