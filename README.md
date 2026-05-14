@@ -93,6 +93,11 @@ flowchart LR
 | 6 | [phase6_evaluation.md](./phase6_evaluation.md) | HumanEval+ / LiveCodeBench / SWE-Bench harness | 30k |
 | 7 | [phase7_deployment.md](./phase7_deployment.md) | SGLang/vLLM/KTransformers + FP8 + MTP | 33k |
 | 8 | [phase8_agent_apps.md](./phase8_agent_apps.md) | Agent 架构 + 300 行 minimal agent 实现 | 40k |
+| ▣ | [phase_glossary.md](./phase_glossary.md) | **术语速查** · 48 条按主题分组（架构/数据/训练/RL/评测/部署） · 每条带「详见 §X.Y」 | 12k |
+| ✦ | [phase_lab.md](./phase_lab.md) | 30-60 分钟可跑的 A vs B 对比实验册（15 个） | 35k |
+| 🧪 | [`examples/`](./examples/) | 5 份可直接跑的脚本：datatrove 数据 / SFT 抽取 / GRPO / SWE-Bench 采集 / mini-agent | — |
+
+> **遇到术语卡住？** 跳到 **[▣ 索引（48 条术语速查）](./phase_glossary.md)** 直接查；每章顶部也有 `术语速查` 链接。
 
 ---
 
