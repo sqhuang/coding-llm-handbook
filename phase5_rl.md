@@ -537,101 +537,7 @@ Rollout 占 RL 总时间 70%+。优化：
 
 ### 7.3 TRL GRPO 代码骨架
 
-```python
-# requirements: trl>=0.12, vllm>=0.6, transformers>=4.46, peft, datasets
-import re, subprocess, tempfile, os
-from datasets import load_dataset
-from transformers import AutoTokenizer
-from trl import GRPOConfig, GRPOTrainer
-from peft import LoraConfig
-
-MODEL = "path/to/phase4_sft_lora_merged"   # Phase 4 LoRA 合并后的模型
-tok = AutoTokenizer.from_pretrained(MODEL)
-
-# 1) 数据：每条样本 = {"prompt": <提示>, "tests": <单测代码>}
-ds = load_dataset("openai_humaneval", split="test")  # 教学用；实际用训练集
-
-SYSTEM = (
-    "You are a coding assistant. First think inside <think>...</think>, "
-    "then output the final Python solution inside ```python ... ``` block."
-)
-
-def build_prompt(ex):
-    msgs = [{"role": "system", "content": SYSTEM},
-            {"role": "user", "content": ex["prompt"]}]
-    return tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-
-ds = ds.map(lambda ex: {"prompt": build_prompt(ex), "tests": ex["test"],
-                         "entry_point": ex["entry_point"]})
-
-CODE_RE = re.compile(r"```python\n(.*?)```", re.S)
-FORMAT_RE = re.compile(r"<think>.*?</think>", re.S)
-
-def run_tests(code: str, tests: str, entry_point: str, timeout: int = 10) -> bool:
-    prog = code + "\n\n" + tests + f"\n\ncheck({entry_point})\n"
-    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
-        f.write(prog); path = f.name
-    try:
-        r = subprocess.run(["python", path], capture_output=True,
-                           timeout=timeout, text=True)
-        return r.returncode == 0
-    except Exception:
-        return False
-    finally:
-        os.unlink(path)
-
-# 2) Reward functions：TRL 允许多个 reward fn，结果会相加
-def reward_correctness(completions, tests, entry_point, **kw):
-    rewards = []
-    for comp, t, ep in zip(completions, tests, entry_point):
-        text = comp[0]["content"] if isinstance(comp, list) else comp
-        m = CODE_RE.search(text)
-        if not m:
-            rewards.append(0.0); continue
-        ok = run_tests(m.group(1), t, ep)
-        rewards.append(1.0 if ok else 0.0)
-    return rewards
-
-def reward_format(completions, **kw):
-    rewards = []
-    for comp in completions:
-        text = comp[0]["content"] if isinstance(comp, list) else comp
-        ok = bool(FORMAT_RE.search(text)) and bool(CODE_RE.search(text))
-        rewards.append(0.1 if ok else 0.0)
-    return rewards
-
-# 3) 训练配置
-cfg = GRPOConfig(
-    output_dir="./grpo_out",
-    learning_rate=5e-6,
-    per_device_train_batch_size=4,
-    gradient_accumulation_steps=4,          # 有效 batch 16 prompts / GPU
-    num_generations=8,                      # G = 8
-    max_prompt_length=1024,
-    max_completion_length=2048,
-    num_train_epochs=1,
-    beta=0.01,                              # KL coef
-    temperature=1.0,
-    use_vllm=True,                          # 打开 vLLM 加速 rollout
-    vllm_gpu_memory_utilization=0.5,
-    logging_steps=1,
-    save_steps=100,
-    bf16=True,
-    report_to="wandb",
-)
-
-lora = LoraConfig(r=16, lora_alpha=32, target_modules="all-linear",
-                  task_type="CAUSAL_LM")
-
-trainer = GRPOTrainer(
-    model=MODEL,
-    reward_funcs=[reward_correctness, reward_format],
-    args=cfg,
-    train_dataset=ds,
-    peft_config=lora,
-)
-trainer.train()
-```
+<!-- include: examples/phase5/grpo_humaneval.py -->
 
 ### 7.4 VERL 版本骨架（大规模更合适）
 
@@ -778,6 +684,33 @@ GLM-4.5 post-training 做了**明确的多阶段 RL**：
 - `OpenRLHF/OpenRLHF`
 - `huggingface/trl`
 - `SWE-Gym/SWE-Gym`、`All-Hands-AI/OpenHands`
+
+---
+
+## 📌 章末检查
+
+**带走这 5 条**
+- 三大算法分工：PPO 通用、DPO 省 critic 但需要偏好对、GRPO 同 prompt 内多 sample 求组内优势。
+- **RLVR**（可验证 reward）= 单测 / 编译器 / 形式化证明结果当 reward，是 coding 任务的 sparse 主信号。
+- reward 设计必须 sparse + dense + anti-hack 三层，否则模型一定会 reward hack。
+- agentic RL 比单轮 RL 难一个量级——sandbox 时延 + reward 稀疏 + 跨步 credit assignment。
+- 工程栈：trainer 用 slime/VERL/OpenRLHF、env 用 SWE-Gym/OpenHands，rollout-trainer 解耦是百卡级以上的必备。
+
+**自检 3 题**（< 5 分钟）
+1. GRPO 不需要 critic 的代价是什么？怎么补救？
+2. RLVR 的 sparse reward 容易"卡死"（reward 长期为 0），有哪些 dense process signal 可以加？
+3. 为什么 agentic RL 比单轮 RL 难一个量级？
+
+<details><summary>参考答案</summary>
+
+1. 代价是 reward 方差大、训练不稳。补救：`group_size` 至少 8-16；reward 做组内 z-score 归一化；KL 系数 0.04 起步、不稳则升到 0.1。
+2. 三个常用：(a) git diff 是否触达正确文件 / 函数；(b) 子单测通过率（pytest 收集出的所有 test 中通过的占比）；(c) 编译/lint 通过（语法对就给小 reward）。
+3. (a) 每步 sample 都要在 sandbox 实际执行，时延比单轮 LM forward 高 100×；(b) reward 只在 episode 末尾出现，跨多步 credit assignment；(c) sandbox 隔离 + 网络/超时控制本身是工程难点。
+</details>
+
+> ⚠️ **常见坑** · reward = `pytest 通过率`，模型学会的不是修 bug，而是 **删测试** 或加 `@pytest.skip`。必须把"测试被删 / 被 skip / 测试覆盖率下降"做成强负 reward；最好同时保留一份只读 reference 测试在 sandbox 外做最终验证。
+
+**下一步** → 进入 [phase6 评测](./phase6_evaluation.md) 看 RL 后模型怎么客观对比。术语速查 → [▣ 索引](./phase_glossary.md)。
 
 ---
 

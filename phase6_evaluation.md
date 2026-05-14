@@ -965,55 +965,7 @@ v1 阶段看到 `Resolved Rate` 在 10~25% 就是合理的（对标：DeepSeek-V
 
 **脚本 A：从 GitHub 拉候选 + 自动 F2P/P2P**
 
-```python
-# internal_swebench/collect.py
-import subprocess, json, requests, os
-from pathlib import Path
-
-GH_TOKEN = os.environ["GH_TOKEN"]
-HEADERS  = {"Authorization": f"Bearer {GH_TOKEN}"}
-
-def fetch_candidate_prs(repo, since, until, label="bug"):
-    url = f"https://api.github.com/search/issues"
-    q = f"repo:{repo} is:pr is:merged label:{label} merged:{since}..{until}"
-    r = requests.get(url, params={"q": q, "per_page": 100}, headers=HEADERS)
-    return r.json()["items"]
-
-def checkout_and_run_tests(repo_dir, commit, test_patch=None):
-    subprocess.run(["git", "-C", repo_dir, "checkout", "-f", commit], check=True)
-    if test_patch:
-        subprocess.run(["git", "-C", repo_dir, "apply", test_patch], check=True)
-    r = subprocess.run(
-        ["pytest", "--tb=no", "-q", "--json-report", "--json-report-file=/tmp/r.json"],
-        cwd=repo_dir, capture_output=True, timeout=600,
-    )
-    return json.loads(Path("/tmp/r.json").read_text())["tests"]
-
-def build_instance(repo_dir, pr):
-    base = pr["base"]["sha"]                       # merge base, bug 仍在
-    merge = pr["merge_commit_sha"]                 # 修复后
-    test_patch = extract_test_diff(repo_dir, base, merge)  # 只保留测试文件改动
-    gold_patch = extract_code_diff(repo_dir, base, merge)  # 只保留非测试改动
-
-    before = checkout_and_run_tests(repo_dir, base, test_patch)
-    after  = checkout_and_run_tests(repo_dir, merge)
-
-    f2p = [t["nodeid"] for t in after if t["outcome"] == "passed"
-           and any(b["nodeid"] == t["nodeid"] and b["outcome"] == "failed" for b in before)]
-    p2p = [t["nodeid"] for t in after if t["outcome"] == "passed"
-           and any(b["nodeid"] == t["nodeid"] and b["outcome"] == "passed" for b in before)]
-
-    return {
-        "instance_id": f"internal__{pr['number']}",
-        "repo": pr["base"]["repo"]["full_name"],
-        "base_commit": base,
-        "problem_statement": strip_solution_hints(pr["body"]),
-        "test_patch": test_patch,
-        "gold_patch": gold_patch,
-        "FAIL_TO_PASS": f2p,
-        "PASS_TO_PASS": p2p,
-    }
-```
+<!-- include: examples/phase6/collect.py -->
 
 **脚本 B：最小 Docker Runner**
 
@@ -1089,6 +1041,33 @@ docker run --rm --name eval-${INSTANCE_ID} \
 **一次性成本**：2 人 × 3 周 ≈ 30 人·日。**复用价值**：之后每次微调 checkpoint 都能跑，摊销极低。
 
 做完这一步你就拥有了：在公司内部做任何「选基座」「决定是否上线」「kill 一次失败的微调」决策时，**唯一不会被人质疑**的数字。这就是你的 north star。
+
+---
+
+## 📌 章末检查
+
+**带走这 5 条**
+- HumanEval / MBPP 早已饱和；2026 的 coding benchmark 主线是 **SWE-Bench Lite / Verified / Pro** + LiveCodeBench。
+- `pass@k` 必须用 unbiased estimate（n 采样、c 通过）：`1 - C(n-c, k) / C(n, k)`，不能用 c/k 直接近似。
+- LiveCodeBench 要报告**时间窗**（如 2024-10 之后题），否则训练数据污染让分数虚高。
+- 数据污染检测 = 10-gram exact match + MinHash 双保险，phase1 §C 同款方法。
+- 公司内部 SWE-Bench v1（30-40 题真实仓库）是 **north star**，比任何公开榜都重要。
+
+**自检 3 题**（< 5 分钟）
+1. `pass@k` unbiased estimate 的公式是什么？n、c、k 各代表什么？
+2. 为什么必须报告 LiveCodeBench 的时间窗？不报告会怎样？
+3. SWE-Bench Lite 分数高、Verified 分数差距大，说明什么？
+
+<details><summary>参考答案</summary>
+
+1. `1 - C(n-c, k) / C(n, k)`。n = 总采样数（如 20）、c = 通过单测的样本数、k = 报告的 pass@k 中的 k（如 1 或 10）。直接 c/k 会高估，尤其在 k 接近 n 时。
+2. 模型预训练数据可能包含早期题目，导致"评测分数高"实际是记忆题面而非泛化。时间窗外的题才是 OOD 评测。不报时间窗 ≈ 评测无效。
+3. Verified 由人工筛掉了不可执行 / 题面歧义的题。两者差距大说明模型对清晰 spec 表现好但**鲁棒性差**（题面稍模糊就崩），生产环境慎用。
+</details>
+
+> ⚠️ **常见坑** · 直接从 HuggingFace 下载 SWE-Bench 数据当 SFT 训练集——这是污染源头。很多公开 SFT 数据集（如某些 agent 轨迹合集）已经把 SWE-Bench 题"洗"进去了，用之前必须跑 10-gram 反向核查。
+
+**下一步** → 进入 [phase7 部署](./phase7_deployment.md) 看分数过关的模型怎么上线。术语速查 → [▣ 索引](./phase_glossary.md)。
 
 ---
 

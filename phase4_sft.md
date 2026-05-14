@@ -991,74 +991,7 @@ Closes #4821
 
 ### 10.9 完整抽取脚本片段（GitHub API → ChatML JSONL）
 
-```python
-# extract_pr_sft.py
-import json, re, time
-from pathlib import Path
-import requests
-
-GITHUB = "https://api.github.com"
-HEADERS = {"Authorization": f"token {os.environ['GH_TOKEN']}",
-           "Accept": "application/vnd.github+json"}
-BOT_AUTHORS = {"dependabot[bot]", "renovate[bot]", "mergify[bot]"}
-CODE_EXTS = {".py", ".ts", ".tsx", ".go", ".java", ".rs", ".cpp", ".sql"}
-CLOSES_RE = re.compile(r"(?:closes|fixes|resolves)\s+#(\d+)", re.I)
-
-def fetch_merged_prs(repo, since):
-    url = f"{GITHUB}/repos/{repo}/pulls"
-    params = {"state": "closed", "per_page": 100, "sort": "updated", "direction": "desc"}
-    while url:
-        r = requests.get(url, headers=HEADERS, params=params); r.raise_for_status()
-        for pr in r.json():
-            if pr["merged_at"] and pr["merged_at"] >= since:
-                yield pr
-        url = r.links.get("next", {}).get("url")
-        time.sleep(0.5)  # rate limit
-
-def get_pr_detail(repo, num):
-    pr   = requests.get(f"{GITHUB}/repos/{repo}/pulls/{num}", headers=HEADERS).json()
-    diff = requests.get(pr["diff_url"], headers=HEADERS).text
-    revs = requests.get(f"{GITHUB}/repos/{repo}/pulls/{num}/comments", headers=HEADERS).json()
-    return pr, diff, revs
-
-def find_linked_issue(repo, pr):
-    body = (pr.get("body") or "") + " " + (pr.get("head", {}).get("ref") or "")
-    m = CLOSES_RE.search(body)
-    if not m: return None
-    iss = requests.get(f"{GITHUB}/repos/{repo}/issues/{m.group(1)}", headers=HEADERS).json()
-    return iss if "title" in iss else None
-
-def quality_ok(pr, diff):
-    if pr["user"]["login"] in BOT_AUTHORS: return False
-    if len(diff.splitlines()) > 5000:      return False
-    if not any(f".{e.lstrip('.')}" in diff for e in CODE_EXTS): return False
-    # 去 whitespace 后是否还有内容
-    non_ws = [l for l in diff.splitlines() if l.startswith(("+","-")) and l[1:].strip()]
-    return len(non_ws) >= 2
-
-def to_chatml(issue, diff):
-    user = (f"# Issue #{issue['number']}: {issue['title']}\n\n"
-            f"{issue['body']}\n\n"
-            f"请输出 unified diff 补丁。")
-    asst = f"```diff\n{diff}\n```"
-    return {"messages": [
-        {"role": "system", "content": "你是 <公司名> coding agent。"},
-        {"role": "user",   "content": user},
-        {"role": "assistant", "content": asst},
-    ]}
-
-def main(repo, since, out_path):
-    with Path(out_path).open("w") as f:
-        for pr in fetch_merged_prs(repo, since):
-            full, diff, _ = get_pr_detail(repo, pr["number"])
-            if not quality_ok(full, diff): continue
-            iss = find_linked_issue(repo, full)
-            if not iss: continue
-            f.write(json.dumps(to_chatml(iss, diff), ensure_ascii=False) + "\n")
-
-if __name__ == "__main__":
-    main("your-org/your-repo", "2022-01-01T00:00:00Z", "pr_sft.jsonl")
-```
+<!-- include: examples/phase4/extract_pr_sft.py -->
 
 抽完后喂给 `tokenizer.apply_chat_template(..., tokenize=False)` 生成最终训练字符串，再按 §10.5 的规则生成 loss mask。
 
@@ -1079,6 +1012,33 @@ if __name__ == "__main__":
 ---
 
 小结本节：把 §0.6 说的"Issue-PR 是金矿"变成工程能落地的步骤——**字段映射 → 四形态模板 → 过滤 → loss mask → 特殊 token 对齐 → 增强 → 混比 → 抽取脚本 → 踩坑**。建议从 (c) Diff → PR title 起步（规模大、过滤宽、最容易见效），再上 (b) Issue → diff 这个核心形态，(d) review 对话留到第二阶段，(a) 放到最后。
+
+---
+
+## 📌 章末检查
+
+**带走这 5 条**
+- **chat template 是契约**——SFT 时用什么 template，推理时必须一字节不差用同一份。
+- loss mask 只对 assistant 输出位置算 loss，system / user / tool_result 全部 mask 掉。
+- OSS-Instruct 用真实代码逆向合成 (instruction, response)，是 2024-2026 SFT 主力配方。
+- LoRA vs 全参：< 5k 数据无差，> 50k 全参才放得下知识；rank=64 是 2026 主流默认。
+- agent 轨迹四形态 (a)~(d) 决定模型 multi-turn 能力上限，(d) 多轮 review 是 Phase 5 RL 的桥梁。
+
+**自检 3 题**（< 5 分钟）
+1. SFT 时 system prompt 算不算 loss？什么时候例外？
+2. LoRA rank=64 比 rank=8 强多少？对什么规模数据值得？
+3. agent 轨迹的 (d) 多轮 review 形态，loss mask 怎么写？
+
+<details><summary>参考答案</summary>
+
+1. 不算。例外：你刻意训"system prompt 改写"或"角色扮演自洽性"任务时才把 system 段也算 loss。
+2. 小数据（< 5k）几乎无差；大数据（> 50k）rank=64 才放得下足够低秩更新方向，HumanEval+ 通常多 3-7pp。代价：训练显存 ≈ 3×、时间 ≈ 5×。
+3. 把所有 human review 评论位置 mask 掉，只对 assistant 的每一版 patch 算 loss——和单轮 SFT 原则完全一样，只是序列拉长 + 多个 assistant 段。
+</details>
+
+> ⚠️ **常见坑** · 用 OpenAI ChatML template（`<|im_start|>` / `<|im_end|>`）训 GLM 或 Qwen 模型——这些特殊 token 不在原 tokenizer vocab 里，会被切成多个 sub-token，整段 loss mask 错位但训练 loss 数字"看起来正常"。**必须用模型自带的 chat template**，并用 `return_assistant_tokens_mask=True` 字节级核对。
+
+**下一步** → 进入 [phase5 RL](./phase5_rl.md) 看怎么把 SFT 模型继续打到 SWE-Bench。术语速查 → [▣ 索引](./phase_glossary.md)。
 
 ---
 
