@@ -282,6 +282,33 @@ TAU-Bench 70.1、AIME-24 91.0、SWE-bench Verified 64.2。355 B 总参/32 B 激�
 
 ---
 
+## 📌 章末检查
+
+**带走这 5 条**
+- GLM-5.1 = 754B 总参 / 40B 激活 / 78 层（首 3 dense + 75 MoE）/ 256+1 expert / MLA q_lora 2048 · kv_lora 512 / 200K 原生上下文 / MIT。
+- DSA = **DeepSeek Sparse Attention**（Lightning Indexer + top-k KV），不是 Dense-Sparse-Alternating；把注意力从 O(L²) 降到 O(L·k)。
+- 训练栈沿用 GLM-4.5 ARC：23T 双段 pretrain + 7T 代码/推理上采样 + mid-train 128K + slime 异步 RL。
+- 优化器从 AdamW 换成 **Muon** 是 2025 下半年 MoE 大模型的新换法。
+- 评测重心从 HumanEval/MBPP 转向 SWE-Bench Pro / LiveCodeBench / 内部私有 benchmark。
+
+**自检 3 题**（< 5 分钟）
+1. 为什么 MoE 总参 754B 而激活只有 40B？算式怎么对得上？
+2. DSA 把 attention 从 O(L²) 降到 O(L·k) 的前提是什么？为什么 Lightning Indexer 本身不会成为新瓶颈？
+3. GLM-5.1 在 SWE-Bench Pro 拿 58.4，相对 GLM-4.5 的提升最可能来自哪两块？
+
+<details><summary>参考答案</summary>
+
+1. 每 token top-k=8 个 expert + 1 个 shared expert；256 routed 中只激活 8，∴ ≈ 754B × (9/257) + 共享/embedding ≈ 40B 激活参数。
+2. Lightning Indexer 是一个浅层 + 小 head_dim 的 scoring 网络，FLOPs 远小于 dense attention；只要 k ≪ L，O(L·k) + O(L · indexer) 总开销仍远低于 O(L²)。
+3. (a) MoE-DSA 让 200K 上下文实际可用，长仓库 issue 不再被截断；(b) agentic post-training（slime 异步 RL + SWE-style 轨迹）直接对齐"修真 bug"分布。
+</details>
+
+> ⚠️ **常见坑** · 直接把 MoE 论文里"top-2 即可"的结论搬到 256-expert 大模型上，往往触发路由 collapse（少数 expert 满载、大量 expert 闲置）。GLM-5.1 用 top-8 + **aux-loss-free** 平衡是有原因的——监控 `expert_load_var` 比看 loss 还重要。
+
+**下一步** → 进入 [phase1 数据 pipeline](./phase1_data_pipeline.md) 看怎么把 23T token 喂进 754B MoE。术语速查 → [▣ 索引](./phase_glossary.md)。
+
+---
+
 ## 动手练习
 
 1. 在 HuggingFace 上打开 `zai-org/GLM-5.1` 与 `deepseek-ai/DeepSeek-V3`，把两份 `config.json` 的字段做并列对比，找出 ≥ 5 处实质差异（不是命名）并指明每一处的设计动机。

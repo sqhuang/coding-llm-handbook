@@ -696,6 +696,33 @@ python benchmark_serving.py \
 
 ---
 
+## 📌 章末检查
+
+**带走这 5 条**
+- 引擎三选一：SGLang / vLLM / KTransformers；按"全卡 vs offload"和"agent 多轮 vs 单轮"两轴决策。
+- MoE 推理瓶颈在 **expert load balance** 和 KV cache 命中，不是算力；EP+TP 拓扑决定上限。
+- 量化层级：FP8 ≈ 无损（< 1pp）/ W8A8 / W4A16（长 coding 任务掉 2-4pp）。
+- speculative decoding 给 200K 上下文加速 1.5-2.5×，draft 命中率随上下文长度下降。
+- prod checklist 5 项不全通过——**不要上线**（5min 告警 / 10min 回滚 / 业务 dashboard / 评测对齐 / 成本可预测）。
+
+**自检 3 题**（< 5 分钟）
+1. 为什么 MoE 模型的 prefix cache 命中率往往不如 dense？
+2. FP8 vs W4A16 量化，哪个对 coding 任务损失更小？为什么？
+3. speculative decoding 在 200K 上下文上加速比一般多少？为什么不能更高？
+
+<details><summary>参考答案</summary>
+
+1. 不同 prompt 在 MoE 路由阶段会激活不同 expert，KV cache 复用率受 routing 一致性影响；若两个 prompt 前缀相同但激活的 expert 集合不同，cache 仍部分失效。
+2. **FP8 几乎无损**（< 1pp HumanEval+）。W4A16 mantissa 不够 represent 长上下文的累积误差，coding 任务 2-4pp 损失常见，长序列 + 复杂逻辑题更糟。
+3. 1.5-2.5×。draft model 在长上下文上命中率（accepted ratio）通常从 70% 跌到 40%，因为 long-ctx 时 main model 的 next-token 分布更尖锐、更难被小模型预测。
+</details>
+
+> ⚠️ **常见坑** · vLLM 默认开启 prefix cache，但叠加 LoRA adapter 后，因 adapter id 不同会让 cache 完全失效——你以为吞吐高 3×，实测只比 base 高 10%。要么**关 LoRA**（合并到 base 权重），要么显式 `--enable-lora-prefix-caching`（vLLM 0.6+ 支持，且要求 adapter 同源）。
+
+**下一步** → 进入 [phase8 Agent 应用](./phase8_agent_apps.md) 看部署好的模型怎么真正接到业务里。术语速查 → [▣ 索引](./phase_glossary.md)。
+
+---
+
 ## 动手练习
 
 1. 浏览 SGLang 与 vLLM 各自的 GLM-5.1 cookbook / recipes，把启动命令的关键 flag（`--quantization`、`--enable-expert-parallel`、`--speculative-...`、`--enable-prefix-caching`）逐项对应到本笔记 §1 的引擎对比表，找出至少 3 处文档差异并解释。

@@ -1248,6 +1248,33 @@ $$
 
 ---
 
+## 📌 章末检查
+
+**带走这 5 条**
+- The Stack v2 / OpenCoder 是公开基线；任何自训语料都要先和这两份比统计量。
+- MinHash 近似去重 + 10-gram exact match 双保险——前者抓段落级重复、后者抓评测集污染。
+- 启发式过滤阈值**必须按语言分桶**调（Python/Java/Rust 的"短文件"分布差 3×）。
+- loss mask 必须和 tokenizer chat template 字节级对齐，不能"目测正确"。
+- Issue-PR 是金矿，四形态 (a) Issue→test (b) Issue→diff (c) Diff→title (d) review 多轮，按过滤难度递减。
+
+**自检 3 题**（< 5 分钟）
+1. 为什么 MinHash 去重前一定要做 **unicode 归一化**？
+2. 评测集去污染的 10-gram exact match 为什么不能省、不能只靠 MinHash？
+3. PR 四形态里，哪种最容易快速产大批量样本？哪种最难但对 multi-turn agent 最关键？
+
+<details><summary>参考答案</summary>
+
+1. 否则 NFC/NFD、半角全角、CRLF/LF、不同缩进会让"事实相同"的文本 hash 出不同 shingle，中文/日文/Markdown 文本去重率会虚高。
+2. MinHash 默认阈值（Jaccard ≈ 0.7）会漏短文本污染——HumanEval/MBPP 题面只有 20-50 token，hash 噪声盖过信号；必须 10-gram exact match 兜底。
+3. (c) Diff→title 最容易（PR title 已是干净一句话，过滤宽，规模可达千万级）；(d) review 多轮最难（要重建对话顺序 + 链式 loss mask），但对训练"模型能吸取人类反馈"这种 multi-turn agent 能力最关键。
+</details>
+
+> ⚠️ **常见坑** · 不做 license filter，把 The Stack v2 里的 GPL/AGPL 代码混进训练集。下游用户可能调出一段你**不能合法分发**的代码——这是 2024 GitHub Copilot 集体诉讼里的核心证据，2026 至今仍未结案。
+
+**下一步** → 进入 [phase2 预训练架构](./phase2_pretraining.md) 看数据怎么进 MoE。术语速查 → [▣ 索引](./phase_glossary.md)。
+
+---
+
 ## 动手练习
 
 1. 在 HuggingFace 上打开 `bigcode/the-stack-v2-dedup` 数据卡，浏览 statistics 页，回答：The Stack v2 在 Python 上有多少 token？许可证分布如何？相比 v1 增量在哪里？

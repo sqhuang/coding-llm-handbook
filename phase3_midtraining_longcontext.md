@@ -594,6 +594,33 @@ deepspeed --num_gpus 8 train.py \
 
 ---
 
+## 📌 章末检查
+
+**带走这 5 条**
+- mid-training = pretrain 末尾的"退火"段：上采样代码/数学到 60-70%，配 WSD 二次衰减。
+- 长上下文 = RoPE 调教（YaRN / LongRoPE）+ 数据侧 repo-level packing 双管齐下，缺一不可。
+- YaRN 在 32K→128K 区间是事实标准；> 200K 才考虑 LongRoPE 非均匀缩放。
+- 验真用 **RULER** needle-in-haystack + **LongBench-v2**，不要只看 PPL。
+- repo-level packing 按 import 拓扑序拼接，保留真实工程结构，cross-file reasoning 提升明显。
+
+**自检 3 题**（< 5 分钟）
+1. 32K → 128K 用 YaRN 还是 LongRoPE？凭什么选？
+2. repo-level packing 为什么比按文件随机拼接强？
+3. effective context length 怎么测？为什么只看 PPL 不够？
+
+<details><summary>参考答案</summary>
+
+1. 32K-128K 区间 YaRN 性价比最高（无训练即用、表现稳定）；> 200K 才上 LongRoPE 的非均匀进化搜索，否则训练成本不划算。
+2. 模型在训练时看到真实工程的 import 顺序与依赖关系，被迫学会 cross-file reasoning；随机拼接相当于把工程拆成"无关代码片段集合"，模型只学到 file-local 模式。
+3. **RULER** needle-in-haystack：在长 prompt 中插入一句独特事实，问模型能否检索出来。"effective_ctx" = 检索准确率 ≥ 85% 的最大上下文长度。PPL 在 128K 上可以很低但 needle 检索完全失败，因为模型可能学到"长 prompt 都答 OK"的 shortcut。
+</details>
+
+> ⚠️ **常见坑** · 只跑 PPL 看长上下文有没有训坏——结果上线后发现 100K+ 任务 needle 完全 fail。PPL 是"平均损失"，对长 prompt 中那几个**关键 token** 的预测错误几乎不敏感；必须 RULER + LongBench 双重验真。
+
+**下一步** → 进入 [phase4 SFT](./phase4_sft.md) 看怎么把长上下文 base 模型对齐成 agent。术语速查 → [▣ 索引](./phase_glossary.md)。
+
+---
+
 ## 动手练习
 
 1. 浏览 YaRN（arXiv:2309.00071）和 LongRoPE（2402.13753）两篇论文的"实验"章节，回答：在 32K → 128K 区间，YaRN 在 Needle-in-Haystack 上比 PI / NTK-aware 优势多大？为什么 LongRoPE 的"非均匀缩放"在 128K+ 才显出价值？

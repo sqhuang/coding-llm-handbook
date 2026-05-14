@@ -881,6 +881,33 @@ Phase 2 训小模型、Phase 3 扩长上下文都要开。
 
 ---
 
+## 📌 章末检查
+
+**带走这 5 条**
+- NTP loss = 标准 `F.cross_entropy(shift_logits, shift_labels)`，与 HF `outputs.loss` 字节级一致。
+- causal mask + packing + position_ids reset 三件套是 LLM 训练的"显存放大器"。
+- 显存账单 = 参数 + 梯度 + 优化器状态 + 激活 + KV cache，五项必须分别算清。
+- chat template 不是字符串拼接，是契约——同模型 SFT / RL / 部署必须用同一份。
+- BF16 适合训练（exponent 范围大），FP16 适合推理（mantissa 多但需 loss scaling）。
+
+**自检 3 题**（< 5 分钟）
+1. NTP loss 的 shift 操作怎么对齐 input 和 label？
+2. BF16 vs FP16 训练时谁更稳？为什么？
+3. KV cache 显存的具体公式是什么？
+
+<details><summary>参考答案</summary>
+
+1. `shift_logits = logits[:, :-1, :]`、`shift_labels = labels[:, 1:]`，意思是用前 N-1 个 token 预测后 N-1 个；末尾 token 没有 next 可以预测，所以丢掉。
+2. **BF16**。BF16 与 FP32 共享 8 位 exponent，几乎不会上下溢；FP16 exponent 只有 5 位，训大模型时 loss scaling 必不可少，且容易 NaN。
+3. `2 × num_layers × num_kv_heads × head_dim × seq_len × bytes_per_value × batch_size`。系数 2 是 K 和 V 各一份；`num_kv_heads` 在 GQA/MLA 下会比 num_heads 小很多。
+</details>
+
+> ⚠️ **常见坑** · 不开 packing 直接按 batch 训短序列——80% 算力浪费在 padding 上，且 attention 在 pad 位置仍然计算（即使被 mask）。packing + position_ids reset + FlashAttention 是 LLM 训练的"地板组合"，缺一项吞吐就掉一档。
+
+**下一步** → 进入 [phase0 GLM-5.1 全景](./phase0_foundation.md) 把基础概念套到一个真模型上。术语速查 → [▣ 索引](./phase_glossary.md)。
+
+---
+
 ## 动手练习
 
 1. 在浏览器里打开 HuggingFace 上任意一个开源 tokenizer（如 `Qwen/Qwen3-Coder-Base`），把 `def add(a, b): return a + b` 输进 tokenize playground，记录输出 token id 序列长度，然后把同一字符串去掉所有空格，对比长度差异并解释。

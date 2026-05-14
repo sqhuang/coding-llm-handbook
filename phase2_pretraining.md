@@ -1002,6 +1002,33 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 
 ---
 
+## 📌 章末检查
+
+**带走这 5 条**
+- MoE = "大参 / 小算" trade-off；256 routed + 1 shared + top-8 是 GLM-5.1 的默认拓扑。
+- MLA 把 KV cache 压 ~10×（q_lora 2048 / kv_lora 512），是 200K 上下文能跑的前提。
+- 防 expert collapse 用 **aux-loss-free** + top-k routing，监控 `expert_load_var` 比看 loss 更早发现问题。
+- Muon 取代 AdamW 是 2025 H2 MoE 大模型的新换法，省 ≈ 40% 优化器状态显存。
+- WSD（warmup-stable-decay）比 cosine 强在**可无痛续训**——稳定段长度不必预先排定。
+
+**自检 3 题**（< 5 分钟）
+1. 把 dense 7B 改成激活 7B 的 MoE、总参 30B，FLOPs 几乎不变，最大的工程代价是什么？
+2. MLA 的 q_lora_rank=2048 是经验值吗？降到 1024 会怎样？
+3. WSD schedule 比 cosine 强在哪？什么时候 cosine 反而更省心？
+
+<details><summary>参考答案</summary>
+
+1. **通信**——expert parallel 需要 all-to-all 通信，对 NIC 带宽和拓扑（IB / NVLink / RoCE）极敏感；硬件没准备好的话 MoE 实际吞吐反而比 dense 慢 30%。
+2. 是经验值（DeepSeek-V2 起、GLM-5.1 沿用）。降到 1024 短上下文几乎无差，长上下文检索（needle-in-haystack）会掉 2-5pp。
+3. WSD 稳定段可由你按"训得够久了"决定何时进入衰减，对 ablation 友好。当总训练 token 已确定且不会续训时，cosine 一次性排好更省事。
+</details>
+
+> ⚠️ **常见坑** · MoE 训不出来最常见的不是模型架构问题，是 **expert 路由 imbalance**——8 个 expert 永远满载、剩下 248 个常空闲。一定要把 `expert_load_var` 和 `aux_loss`（或 aux-loss-free 的 bias 漂移量）画进每一份训练曲线。
+
+**下一步** → 进入 [phase3 mid-training & 长上下文](./phase3_midtraining_longcontext.md) 看怎么把 32K 扩到 200K。术语速查 → [▣ 索引](./phase_glossary.md)。
+
+---
+
 ## 动手练习
 
 1. 打开 GLM-5.1 / DeepSeek-V3 / Qwen3-Next 三份 `config.json`，对照 §0.5 架构演进图，把每个模型的位置标在演进树上：用了 MLA 还是 GQA、用了 RMSNorm pre-norm 还是 post-norm、SwiGLU 还是 GLU、是否 partial RoPE。
