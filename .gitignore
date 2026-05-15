@@ -3,3 +3,6 @@ package-lock.json
 cache/
 __pycache__/
 *.pyc
+
+# track.py export — regenerate with `python tools/track.py export-md`
+tracker_view.md
