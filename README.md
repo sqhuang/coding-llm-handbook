@@ -98,6 +98,7 @@ flowchart LR
 | ✪ | [phase_capstone.md](./phase_capstone.md) | **4 周端到端 capstone** · 串起 phase0-8 的 19 个 step，每步给卡 / 数据 / 模型 / 超参 / 验收 / 思考题 | 13k |
 | 🧪 | [`examples/`](./examples/) | 5 份可直接跑的脚本：datatrove 数据 / SFT 抽取 / GRPO / SWE-Bench 采集 / mini-agent | — |
 | 📋 | [`tools/track.py`](./tools/track.py) | capstone 看板 CLI · todo/doing/blocked/done 四态 · 状态存 [`tracker.json`](./tracker.json) | — |
+| 📦 | [`capstone_runtime/`](./capstone_runtime/) | **拷到目标机即可用的实验骨架** · 19 step 脚本 + configs + 19 单元测试 + preflight；README 红线划清"已 verify / 需在你机器 verify" | — |
 
 > **遇到术语卡住？** 跳到 **[▣ 索引（48 条术语速查）](./phase_glossary.md)** 直接查；每章顶部也有 `术语速查` 链接。
 

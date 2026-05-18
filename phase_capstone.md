@@ -6,6 +6,8 @@
 > 1. 这是一份**端到端可执行**的实验册——把 phase0-8 的所有概念在同一个 4 周项目里走一遍，**每一步都给出卡 / 数据 / 模型 / 超参 / 命令 / 验收 / 思考题**，跑完就拥有 "自己跑过全流程" 的经验。
 > 2. 预算锚点：**8×H100 80GB · 4 周 · 总成本 ≈ $4K**（按 H100 按需 $2/hr · 总 ~2000 GPU-hour）；预算紧时退到 4×H100 + 跳过 mid-training 也成。
 > 3. 配套 `tools/track.py` 看板 CLI 跟踪 todo / doing / done / blocked 四种状态——所有 19 个 step 的状态、备注、实际花费都进 `tracker.json`，**研究日志不再丢**。
+>
+> **拷到目标机就跑用的脚手架** → [`capstone_runtime/`](./capstone_runtime/)：19 个 step 脚本（4 个已在 Mac 上 verify、其余是 fail-fast 的模板）+ configs + 19 单元测试 + preflight 自检 + 一份 README 红线说明「我没法保证在你的 H100 集群跑通，你必须 verify 的那些事」。`tar` 一份扔过去 `cd && make setup && make preflight && make test` 即可开工。
 
 ---
 
