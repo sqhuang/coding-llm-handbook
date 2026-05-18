@@ -1,0 +1,68 @@
+# GRPO config for step 12 — VERL format (subset; consult VERL docs for full schema).
+# CRITICAL knobs to tune: kl_beta, group_size, anti-hack weights.
+
+actor:
+  model:
+    pretrained_model_name_or_path: ckpt/sft_lora_merged
+    trust_remote_code: true
+  lora:
+    enable: true
+    rank: 16
+    alpha: 32
+    target_modules: all-linear
+  optim:
+    name: AdamW
+    lr: 5.0e-6
+    weight_decay: 0.0
+  trainer:
+    micro_batch_size_per_gpu: 1
+    gradient_accumulation_steps: 8
+
+rollout:
+  engine: vllm
+  tensor_parallel_size: 4           # half the cluster does rollout
+  max_new_tokens: 2048
+  temperature: 1.0
+  top_p: 1.0
+  n: 8                              # group_size — keep ≥ 8 for stable GRPO
+  log_prob_micro_batch_size: 16
+
+algorithm:
+  name: grpo
+  kl_loss_coef: 0.04                # KL beta — 0.04 stable, raise if KL > 5
+  clip_ratio_low: 0.8               # 1 − ε
+  clip_ratio_high: 1.2              # 1 + ε   (PPO-style clip on policy ratio)
+  entropy_coef: 0.0
+  normalize_advantage: true
+  group_norm: true                  # z-score within group; critical for GRPO
+
+reward:
+  # See steps/11_rl_env.py for definitions
+  funcs:
+    - name: sparse_f2p
+      weight: 1.0
+    - name: dense_diff_touch
+      weight: 0.1
+    - name: dense_lint
+      weight: 0.05
+    - name: anti_hack_test_modified
+      weight: -2.0
+    - name: anti_hack_skip_added
+      weight: -1.0
+    - name: format_bonus
+      weight: 0.1
+
+env:
+  name: swe-gym
+  config_path: configs/swegym_tasks.yaml      # list 40 instance IDs here
+  episode_timeout_sec: 300
+  parallel_envs: 16
+
+training:
+  total_steps: 100
+  save_steps: 25
+  eval_steps: 25
+  output_dir: ckpt/rl_grpo
+  logging:
+    backend: wandb                  # or tensorboard
+    project: capstone-air

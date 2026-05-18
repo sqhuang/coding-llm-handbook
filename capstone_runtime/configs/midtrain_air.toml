@@ -1,0 +1,79 @@
+# Mid-training config for step 06 — torchtitan format.
+# REVIEW BEFORE EVERY RUN: model path, dataset paths, total tokens, parallel dims.
+
+[job]
+dump_folder = "./ckpt/midtrain_air"
+description = "GLM-4.5-Air-Base mid-training annealing 5B tokens, WSD schedule"
+
+[profiling]
+enable_profiling = false
+
+[metrics]
+enable_tensorboard = true
+save_tb_folder = "logs/tb_midtrain"
+
+[model]
+name = "glm-4.5-air-base"
+# Override: load HF weights instead of training from scratch.
+hf_load_path = "zai-org/GLM-4.5-Air-Base"
+flavor = "mixture-of-experts"
+norm_type = "rmsnorm"
+
+[optimizer]
+name = "AdamW"
+lr = 2e-5
+beta1 = 0.9
+beta2 = 0.95
+weight_decay = 0.1
+
+[lr_scheduler]
+# WSD: warmup → stable → linear decay to 0. Tokens, not steps.
+schedule = "wsd"
+warmup_tokens = 1_000_000_000      # 1B
+stable_tokens = 3_000_000_000      # 3B
+decay_tokens  = 1_000_000_000      # 1B
+min_lr_ratio = 0.0
+
+[training]
+seq_len = 8192
+global_batch_size = 512
+gradient_accumulation_steps = 16
+dtype = "bfloat16"
+master_weights_dtype = "float32"
+gradient_clipping = 1.0
+seed = 42
+
+[parallelism]
+data_parallel_replicate_degree = 1
+data_parallel_shard_degree = 8          # FSDP across 8 GPUs
+tensor_parallel_degree = 1
+pipeline_parallel_degree = 1
+context_parallel_degree = 1
+
+[checkpoint]
+enable_checkpoint = true
+folder = "ckpt/midtrain_air"
+interval = 500
+keep_latest_k = 3
+async_mode = "async"
+
+[data]
+# Two streams; weighted sampler in datatrove output → jsonl
+[[data.streams]]
+name = "code"
+path = "data/clean/code/*.jsonl"
+weight = 0.70
+
+[[data.streams]]
+name = "chinese"
+path = "data/clean/cci3/*.jsonl"
+weight = 0.20
+
+[[data.streams]]
+name = "math"
+path = "data/clean/openmath2/*.jsonl"
+weight = 0.10
+
+[experimental]
+enable_compile = true
+enable_cpu_offload = false

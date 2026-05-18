@@ -1,0 +1,20 @@
+# Local venv + caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Step outputs (everything that the experiment produces)
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+ckpt/*
+!ckpt/.gitkeep
+internal_bench_v0/
+
+# Track export — regenerate with `make export`
+tracker_view.md
+
+# Local env file (env.example is the template; .env is yours and private)
+.env

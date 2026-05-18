@@ -1,0 +1,34 @@
+# capstone_runtime — pinned-ish python deps
+#
+# Tier 1: needed for preflight + the four self-contained step scripts
+#   (01_baseline, 04_decontam, 11_rl_env reward fns, 19_retro)
+#   — these install cleanly on any Mac / Linux box, no GPU needed.
+requests>=2.31
+pyyaml>=6.0
+datasketch>=1.6.4         # MinHash for 04_decontam
+unicodedata2>=15.1.0; python_version < "3.13"
+pytest>=8.0
+pytest-cov>=4.1
+
+# Tier 2: GPU steps — install these only on the target H100 box.
+# Versions chosen for late 2025 / early 2026 compatibility with
+# GLM-4.5-Air-Base + DSA. Verify against your CUDA / driver before pinning harder.
+#
+# torch>=2.5.0
+# transformers>=4.46.0
+# accelerate>=1.0.0
+# datasets>=3.0.0
+# peft>=0.13.0
+# trl>=0.12.0
+# vllm>=0.6.3
+# sglang>=0.4.0
+# evalplus>=0.3.1
+# datatrove>=0.3.0
+# qdrant-client>=1.12
+# tree-sitter-languages>=1.10
+# FlagEmbedding>=1.3      # for bge-code-v1 / bge-reranker-v2
+# docker>=7.1             # only if you run sandboxes from python
+#
+# To install Tier 2: uncomment, run `pip install -r requirements.txt`
+# on the target box, fix any version conflict, then commit the pinned versions
+# back into this file.

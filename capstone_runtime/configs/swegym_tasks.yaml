@@ -1,0 +1,18 @@
+# 40 instance IDs for step 12 GRPO training set.
+# Fill from step 02 + step 10 outputs.
+
+tasks:
+  # — internal SWE-Bench v0 (10 from step 02) —
+  - id: internal__sample-001
+    path: internal_bench_v0/instances/internal__sample-001.json
+    weight: 1.0
+
+  # ... add 9 more from your real PRs
+
+  # — public repo tasks (30 from step 10 collection) —
+  # Each one should already be a SWE-Bench-format instance JSON with
+  # FAIL_TO_PASS / PASS_TO_PASS / gold_patch / test_patch.
+  # e.g.
+  # - id: public__django-12345
+  #   path: external_bench/django-12345.json
+  #   weight: 1.0
