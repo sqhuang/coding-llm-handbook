@@ -3,7 +3,7 @@
   const CONTENT = JSON.parse(document.getElementById("content-data").textContent);
   const META    = JSON.parse(document.getElementById("meta-data").textContent || "{}");
 
-  // Map id -> short English label for sidebar third column
+  // ---- short English label for sidebar ----
   const SHORT_EN = {
     readme:     "Overview",
     roadmap:    "Roadmap",
@@ -18,10 +18,34 @@
     phase7:     "Deploy",
     phase8:     "Agent",
     lab:        "Lab",
+    capstone:   "Capstone",
     outro:      "What's Next",
     glossary:   "Glossary",
     references: "References",
   };
+
+  // ---- localStorage keys + read state ----
+  const RS_KEY = "readstate:v1";
+  const SCROLL_KEY = (id) => `scroll:${id}`;
+  const READ_THRESHOLD = 0.8; // 80% scrolled => mark read
+
+  function loadReadState() {
+    try { return JSON.parse(localStorage.getItem(RS_KEY) || "{}"); }
+    catch { return {}; }
+  }
+  function saveReadState(s) {
+    try { localStorage.setItem(RS_KEY, JSON.stringify(s)); } catch {}
+  }
+  let READ = loadReadState();
+  function markChapter(id, state) {
+    if (READ[id] === state) return;
+    READ[id] = state;
+    saveReadState(READ);
+    refreshNavState();
+    refreshOverallProgress();
+  }
+  // glyphs
+  const STATE_GLYPH = { read: "✓", reading: "◐", unread: "·" };
 
   // ---- marked setup ----
   const renderer = new marked.Renderer();
@@ -87,15 +111,23 @@
 
   // ---- Reading time ----
   function readingTime(text) {
-    // Count CJK chars + non-CJK words
     const cjk = (text.match(/[一-鿿㐀-䶿]/g) || []).length;
     const words = (text.replace(/[一-鿿㐀-䶿]/g, " ").match(/\b\w+\b/g) || []).length;
-    // ~350 cjk/min, ~220 words/min
     const minutes = Math.max(1, Math.round(cjk / 350 + words / 220));
     return minutes;
   }
+  // Approximate reading time of arbitrary text snippet (for per-section TOC)
+  function readingTimeOf(text) {
+    const cjk = (text.match(/[一-鿿㐀-䶿]/g) || []).length;
+    const words = (text.replace(/[一-鿿㐀-䶿]/g, " ").match(/\b\w+\b/g) || []).length;
+    const minutes = cjk / 350 + words / 220;
+    return minutes < 0.95 ? "<1m" : Math.round(minutes) + "m";
+  }
 
-  // ---- Render nav ----
+  // ---- Nav (sidebar) ----
+  function navStateGlyph(id) {
+    return STATE_GLYPH[READ[id] || "unread"];
+  }
   function renderNav() {
     const list = document.getElementById("nav-list");
     list.innerHTML = NAV.map((item, i) => {
@@ -105,9 +137,11 @@
       } else if (item.id === "lab") {
         sep = `<li class="nav-section" role="separator"><span class="glyph">·</span> 附录 · Appendix</li>`;
       }
-      const delay = (i * 0.03).toFixed(2);
+      const delay = (i * 0.025).toFixed(2);
+      const state = READ[item.id] || "unread";
       return `${sep}<li>
-        <a class="nav-link" data-target="${item.id}" href="#${item.id}" style="animation-delay:${delay}s">
+        <a class="nav-link" data-target="${item.id}" data-read="${state}" href="#${item.id}" style="animation-delay:${delay}s">
+          <span class="state" aria-hidden="true">${navStateGlyph(item.id)}</span>
           <span class="num">${item.num}</span>
           <span class="label">${item.label}</span>
           <span class="title-en">${SHORT_EN[item.id] || ""}</span>
@@ -119,6 +153,14 @@
         e.preventDefault();
         load(a.dataset.target);
       });
+    });
+  }
+  function refreshNavState() {
+    document.querySelectorAll(".nav-link").forEach(a => {
+      const id = a.dataset.target;
+      a.dataset.read = READ[id] || "unread";
+      const stateEl = a.querySelector(".state");
+      if (stateEl) stateEl.textContent = navStateGlyph(id);
     });
   }
 
@@ -154,7 +196,6 @@
   // ---- Scroll position persistence ----
   let activeId = null;
   let scrollSaveTimer = null;
-  const SCROLL_KEY = (id) => `scroll:${id}`;
   function saveScroll() {
     if (!activeId) return;
     clearTimeout(scrollSaveTimer);
@@ -166,7 +207,6 @@
   function restoreScroll(id) {
     const saved = parseInt(localStorage.getItem(SCROLL_KEY(id)) || "0", 10);
     if (saved > 0) {
-      // wait one frame for layout
       requestAnimationFrame(() => window.scrollTo({ top: saved, behavior: "instant" }));
       return true;
     }
@@ -174,8 +214,6 @@
   }
 
   // ---- Per-chapter rendered HTML cache ----
-  // First navigation parses synchronously; adjacent chapters are pre-rendered
-  // on the idle queue so prev/next clicks feel instant.
   const RENDERED = {};
   function renderChapter(id) {
     if (RENDERED[id]) return RENDERED[id];
@@ -187,15 +225,119 @@
     return html;
   }
   function prefetchAdjacent(id) {
-    const idle = window.requestIdleCallback
-      || (cb => setTimeout(cb, 200));
+    const idle = window.requestIdleCallback || (cb => setTimeout(cb, 200));
     const idx = NAV.findIndex(n => n.id === id);
     const neighbors = [NAV[idx - 1], NAV[idx + 1]].filter(Boolean);
     neighbors.forEach(n => {
-      if (!RENDERED[n.id]) {
-        idle(() => renderChapter(n.id), { timeout: 2000 });
+      if (!RENDERED[n.id]) idle(() => renderChapter(n.id), { timeout: 2000 });
+    });
+  }
+
+  // ---- Callout detection (blockquotes that start with ⚡/📌/⚠️/📅) ----
+  const CALLOUT_MAP = [
+    { re: /^[⚡]/u,                    type: "tip",   label: "要点",     icon: "⚡" },
+    { re: /^📌/u,                      type: "check", label: "章末检查", icon: "📌" },
+    { re: /^[⚠️]|^⚠/u,                 type: "warn",  label: "常见坑",   icon: "⚠️" },
+    { re: /^📅/u,                      type: "date",  label: "主线快照", icon: "📅" },
+  ];
+  function decorateCallouts(root) {
+    root.querySelectorAll("blockquote").forEach(bq => {
+      // Use the first non-whitespace text of the blockquote to detect emoji
+      const text = (bq.textContent || "").trim();
+      for (const c of CALLOUT_MAP) {
+        if (c.re.test(text)) {
+          bq.setAttribute("data-callout", c.type);
+          bq.setAttribute("data-icon", c.icon);
+          bq.setAttribute("data-label", c.label);
+          // Strip the leading emoji from first <strong>/<p> so it isn't duplicated
+          const first = bq.querySelector("p, li, strong");
+          if (first) {
+            first.innerHTML = first.innerHTML.replace(c.re, "").replace(/^\s+/, "");
+          }
+          break;
+        }
       }
     });
+  }
+
+  // ---- Code-block enhancements: language tag + line numbers ----
+  function decorateCode(root) {
+    root.querySelectorAll("pre").forEach(pre => {
+      const code = pre.querySelector("code");
+      if (!code) return;
+      // Detect language from hljs class or marked's `language-xxx`
+      let lang = "";
+      (code.className || "").split(/\s+/).forEach(cls => {
+        if (cls.startsWith("language-")) lang = cls.slice("language-".length);
+        else if (cls === "hljs") {}
+        else if (cls && !lang) lang = cls;
+      });
+      lang = (lang || "text").replace(/^hljs-?/, "");
+      if (lang.length > 12) lang = "text";
+
+      const tag = document.createElement("span");
+      tag.className = "code-tag";
+      tag.textContent = lang;
+      pre.appendChild(tag);
+
+      // Line numbers: only for languages where lines make sense (skip plain text/diff sometimes)
+      if (lang !== "text" || code.textContent.split("\n").length > 4) {
+        wrapLines(code);
+        pre.classList.add("has-lines");
+      }
+
+      // Copy button (always visible at 0.55 opacity; full on hover)
+      const btn = document.createElement("button");
+      btn.className = "copy-btn";
+      btn.textContent = "复制";
+      btn.addEventListener("click", () => {
+        navigator.clipboard.writeText(code.textContent);
+        btn.textContent = "已复制";
+        btn.classList.add("done");
+        setTimeout(() => { btn.textContent = "复制"; btn.classList.remove("done"); }, 1600);
+      });
+      pre.appendChild(btn);
+    });
+  }
+  function wrapLines(code) {
+    // Walk children, splitting on \n, wrapping each line in <span class="line">.
+    // We need to preserve highlight.js's nested spans, so we re-tokenize at the
+    // text-node level: traverse, find newlines inside text nodes, split into
+    // line spans.
+    const lines = [];
+    let current = document.createElement("span");
+    current.className = "line";
+    function flushCurrent() {
+      lines.push(current);
+      current = document.createElement("span");
+      current.className = "line";
+    }
+    function visit(node, parent) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const parts = node.nodeValue.split("\n");
+        parts.forEach((part, i) => {
+          if (part) {
+            // If parent is a styled span, clone it (without children) and add text.
+            if (parent && parent !== code) {
+              const clone = parent.cloneNode(false);
+              clone.appendChild(document.createTextNode(part));
+              current.appendChild(clone);
+            } else {
+              current.appendChild(document.createTextNode(part));
+            }
+          }
+          if (i < parts.length - 1) flushCurrent();
+        });
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      // Recurse into children, treating this element as the "parent" for inheritance
+      Array.from(node.childNodes).forEach(child => visit(child, node));
+    }
+    Array.from(code.childNodes).forEach(child => visit(child, null));
+    flushCurrent();
+    code.innerHTML = "";
+    lines.forEach(l => code.appendChild(l));
   }
 
   // ---- Load phase ----
@@ -204,6 +346,9 @@
     if (!item || !CONTENT[id]) return;
 
     activeId = id;
+    // Mark as 'reading' as soon as you open it (unless already 'read')
+    if (READ[id] !== "read") markChapter(id, "reading");
+
     const content = document.getElementById("content");
     content.style.animation = "none";
     void content.offsetHeight;
@@ -211,7 +356,9 @@
 
     content.innerHTML = renderChapter(id);
 
-    // breadcrumb (with reading time)
+    decorateCallouts(content);
+    decorateCode(content);
+
     const minutes = (META.readingTime && META.readingTime[id]) || readingTime(CONTENT[id]);
     document.getElementById("breadcrumb").innerHTML =
       `<span>${item.num} · ${item.title}</span><span class="reading-time">约 ${minutes} 分钟</span>`;
@@ -221,30 +368,13 @@
     });
     document.title = `${item.title} · 研究手札`;
 
-    // hljs (mermaid blocks are already pre-rendered SVG inline, no client-side mermaid)
     content.querySelectorAll("pre code").forEach(b => {
       try { hljs.highlightElement(b); } catch {}
     });
 
-    // copy buttons
-    content.querySelectorAll("pre").forEach(pre => {
-      const btn = document.createElement("button");
-      btn.className = "copy-btn";
-      btn.textContent = "复制";
-      btn.addEventListener("click", () => {
-        const code = pre.querySelector("code");
-        if (code) {
-          navigator.clipboard.writeText(code.textContent);
-          btn.textContent = "已复制";
-          btn.classList.add("done");
-          setTimeout(() => { btn.textContent = "复制"; btn.classList.remove("done"); }, 1600);
-        }
-      });
-      pre.appendChild(btn);
-    });
-
-    // heading anchors
+    // Heading anchors + ids
     let hIdx = 0;
+    const sectionInfos = [];
     content.querySelectorAll("h2, h3").forEach(h => {
       const hid = "h-" + (hIdx++);
       h.id = hid;
@@ -257,34 +387,40 @@
         document.getElementById(hid).scrollIntoView({ behavior: "smooth", block: "start" });
       });
       h.appendChild(a);
+      sectionInfos.push({ id: hid, el: h });
     });
 
-    buildToc();
+    buildToc(sectionInfos);
     renderPageNav(id);
+    setStatusbarPosition(item, null);
     if (push) history.replaceState(null, "", "#" + id);
 
-    // restore scroll position if any, else top
     if (!restoreScroll(id)) {
       window.scrollTo({ top: 0, behavior: "instant" });
     }
 
     prefetchAdjacent(id);
+    refreshOverallProgress();
   }
 
-  // ---- TOC ----
-  function buildToc() {
+  // ---- TOC mini-map (with per-section reading time + current dot) ----
+  function buildToc(sectionInfos) {
     const toc = document.getElementById("toc");
-    const hs = document.querySelectorAll("#content h2, #content h3");
+    const hs = sectionInfos.map(s => s.el);
     if (hs.length < 3) {
       toc.classList.remove("show");
       toc.innerHTML = "";
       return;
     }
-    let html = `<div class="toc-title">本页目录</div><ul class="toc-list">`;
-    hs.forEach(h => {
+    // Compute reading time per H2 (text between consecutive H2s)
+    const times = sectionTimes(hs);
+
+    let html = `<div class="toc-title"><span>本页目录</span><span class="toc-count">${hs.length}</span></div><ul class="toc-list">`;
+    hs.forEach((h, i) => {
       const cls = h.tagName === "H3" ? "lvl-3" : "";
       const text = h.textContent.replace(/§$/, "").trim();
-      html += `<li><a class="${cls}" href="#${h.id}">${text}</a></li>`;
+      const time = times[i] || "";
+      html += `<li><a class="${cls}" href="#${h.id}"><span class="toc-text">${escapeHtml(text)}</span>${time ? `<span class="toc-time">${time}</span>` : ""}</a></li>`;
     });
     html += `</ul>`;
     toc.innerHTML = html;
@@ -298,6 +434,7 @@
       });
     });
 
+    if (window.__tocIO) window.__tocIO.disconnect();
     const io = new IntersectionObserver(entries => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
@@ -305,10 +442,66 @@
           toc.querySelectorAll("a").forEach(a => {
             a.classList.toggle("active", a.getAttribute("href") === "#" + id);
           });
+          // Update status bar section text
+          const sb = document.getElementById("sb-section");
+          const text = entry.target.textContent.replace(/§$/, "").trim();
+          sb.textContent = text;
+          sb.classList.toggle("empty", !text);
         }
       });
     }, { rootMargin: "-10% 0px -75% 0px" });
     hs.forEach(h => io.observe(h));
+    window.__tocIO = io;
+  }
+  function sectionTimes(hs) {
+    // Estimate reading time of text between hs[i] and hs[i+1] (or end of content)
+    const content = document.getElementById("content");
+    const times = [];
+    for (let i = 0; i < hs.length; i++) {
+      if (hs[i].tagName === "H3") { times.push(""); continue; }
+      let buf = "";
+      let node = hs[i].nextSibling;
+      const stopAt = hs[i + 1] || null;
+      while (node && node !== stopAt) {
+        if (node.nodeType === Node.TEXT_NODE) buf += node.nodeValue;
+        else if (node.nodeType === Node.ELEMENT_NODE) buf += node.textContent || "";
+        node = node.nextSibling;
+      }
+      times.push(buf.length > 100 ? readingTimeOf(buf) : "");
+    }
+    return times;
+  }
+
+  // ---- Statusbar ----
+  function setStatusbarPosition(item, sectionText) {
+    document.getElementById("sb-pos").textContent = `${item.num} · ${item.label}`;
+    const sec = document.getElementById("sb-section");
+    sec.textContent = sectionText || "";
+    sec.classList.toggle("empty", !sectionText);
+  }
+  function setStatusbarMode() {
+    const theme = document.documentElement.dataset.theme || "light";
+    document.getElementById("sb-mode").textContent = theme === "dark" ? "midnight" : "paper";
+  }
+  function refreshOverallProgress() {
+    const total = NAV.length;
+    const read = NAV.filter(n => READ[n.id] === "read").length;
+    const reading = NAV.filter(n => READ[n.id] === "reading").length;
+    const pct = Math.round((read + reading * 0.4) / total * 100);
+    document.getElementById("sb-overall-fill").style.width = pct + "%";
+    document.getElementById("sb-overall-label").textContent =
+      `${read}/${total} 章 · ${pct}%`;
+    // Total minutes left = sum reading time of unread + half of reading
+    const tt = META.readingTime || {};
+    let mins = 0;
+    NAV.forEach(n => {
+      const t = tt[n.id] || 0;
+      const s = READ[n.id];
+      if (s === "read") return;
+      mins += s === "reading" ? t * 0.5 : t;
+    });
+    document.getElementById("sb-overall-time").textContent =
+      mins > 0 ? `≈ ${Math.round(mins)} 分钟剩余` : "✓ 全部读完";
   }
 
   // ---- Theme ----
@@ -319,6 +512,7 @@
     document.getElementById("hljs-light").disabled = (next === "dark");
     document.getElementById("hljs-dark").disabled  = (next === "light");
     localStorage.setItem("theme", next);
+    setStatusbarMode();
   });
 
   // ---- Font size ----
@@ -330,10 +524,41 @@
     localStorage.setItem("fontsize", next);
   });
 
+  // ---- Density ----
+  document.getElementById("density-btn").addEventListener("click", () => {
+    const curr = document.documentElement.dataset.density || "compact";
+    const next = curr === "compact" ? "comfy" : "compact";
+    document.documentElement.dataset.density = next;
+    localStorage.setItem("density", next);
+  });
+
   // ---- Print ----
   document.getElementById("print-btn").addEventListener("click", () => {
     window.print();
   });
+
+  // ---- Keyboard shortcuts ----
+  document.addEventListener("keydown", e => {
+    const inForm = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if (inForm) {
+      if (e.key === "Escape") document.activeElement.blur();
+      return;
+    }
+    if (e.key === "/")     { e.preventDefault(); document.getElementById("search-input").focus(); }
+    if (e.key === "t")     { document.getElementById("theme-btn").click(); }
+    if (e.key === "a")     { document.getElementById("font-btn").click(); }
+    if (e.key === "d")     { document.getElementById("density-btn").click(); }
+    if (e.key === "j" || e.key === "ArrowRight") { goNext(); }
+    if (e.key === "k" || e.key === "ArrowLeft")  { goPrev(); }
+  });
+  function goPrev() {
+    const idx = NAV.findIndex(n => n.id === activeId);
+    if (idx > 0) load(NAV[idx - 1].id);
+  }
+  function goNext() {
+    const idx = NAV.findIndex(n => n.id === activeId);
+    if (idx >= 0 && idx < NAV.length - 1) load(NAV[idx + 1].id);
+  }
 
   // ---- Search ----
   const input = document.getElementById("search-input");
@@ -392,28 +617,24 @@
   document.addEventListener("click", e => {
     if (!e.target.closest(".search")) results.classList.remove("show");
   });
-  document.addEventListener("keydown", e => {
-    if (e.key === "/" && document.activeElement !== input) {
-      e.preventDefault();
-      input.focus();
-      input.select();
-    }
-    if (e.key === "Escape") {
-      if (document.activeElement === input) input.blur();
-      results.classList.remove("show");
-    }
-  });
 
-  // ---- Progress bar + scroll persistence ----
-  const bar = document.getElementById("progress-bar");
-  function updateProgress() {
+  // ---- Scroll: per-chapter progress + statusbar bar + read-state advance ----
+  const sbBar = document.getElementById("sb-bar-fill");
+  const sbPct = document.getElementById("sb-pct");
+  function updateScroll() {
     const h = document.documentElement;
     const max = h.scrollHeight - h.clientHeight;
-    const pct = max > 0 ? (h.scrollTop / max * 100) : 0;
-    bar.style.width = Math.min(100, Math.max(0, pct)) + "%";
+    const pct = max > 0 ? (h.scrollTop / max) : 0;
+    const pctClamped = Math.min(1, Math.max(0, pct));
+    const pctNum = Math.round(pctClamped * 100);
+    sbBar.style.width = pctNum + "%";
+    sbPct.textContent = pctNum + "%";
+    if (activeId && pctClamped >= READ_THRESHOLD && READ[activeId] !== "read") {
+      markChapter(activeId, "read");
+    }
   }
   window.addEventListener("scroll", () => {
-    updateProgress();
+    updateScroll();
     saveScroll();
   }, { passive: true });
 
@@ -426,9 +647,13 @@
   }
   const savedFont = localStorage.getItem("fontsize");
   if (savedFont) document.documentElement.dataset.fontsize = savedFont;
+  const savedDensity = localStorage.getItem("density");
+  if (savedDensity) document.documentElement.dataset.density = savedDensity;
 
   // ---- Init ----
   renderNav();
+  setStatusbarMode();
+  refreshOverallProgress();
   const initial = (location.hash || "#readme").replace(/^#/, "");
   load(NAV.find(n => n.id === initial) ? initial : "readme", false);
   window.addEventListener("hashchange", () => {

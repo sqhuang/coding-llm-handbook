@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light" data-fontsize="medium">
+<html lang="zh-CN" data-theme="light" data-fontsize="medium" data-density="compact">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -33,10 +33,20 @@
       <ul class="nav-list" id="nav-list"></ul>
     </nav>
 
-    <div class="controls">
-      <button class="ctrl-btn" id="theme-btn" title="切换主题">明 · 暗</button>
-      <button class="ctrl-btn" id="font-btn"  title="调整字号">字 · 号</button>
-      <button class="ctrl-btn" id="print-btn" title="打印或导出 PDF">打印</button>
+    <div class="sidebar-foot">
+      <div class="sb-progress" id="sb-overall" title="全书阅读进度">
+        <div class="sb-progress-track"><div class="sb-progress-fill" id="sb-overall-fill"></div></div>
+        <div class="sb-progress-meta">
+          <span class="sb-progress-label" id="sb-overall-label">— / — 章 · 0%</span>
+          <span class="sb-progress-time"  id="sb-overall-time">≈ — 分钟</span>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="ctrl-btn" id="theme-btn"   title="切换主题 (T)">主题</button>
+        <button class="ctrl-btn" id="font-btn"    title="调整字号 (A)">字号</button>
+        <button class="ctrl-btn" id="density-btn" title="切换密度 (D)">密度</button>
+        <button class="ctrl-btn" id="print-btn"   title="打印或导出 PDF">打印</button>
+      </div>
     </div>
   </aside>
 
@@ -49,7 +59,21 @@
   <aside class="toc" id="toc" aria-label="本页目录"></aside>
 </div>
 
-<div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+<footer class="statusbar" id="statusbar" role="status">
+  <div class="sb-cell sb-left">
+    <span class="sb-pip" id="sb-pip">●</span>
+    <span class="sb-pos" id="sb-pos">—</span>
+  </div>
+  <div class="sb-cell sb-mid">
+    <span class="sb-section" id="sb-section">—</span>
+  </div>
+  <div class="sb-cell sb-right">
+    <span class="sb-bar"><span class="sb-bar-fill" id="sb-bar-fill"></span></span>
+    <span class="sb-pct" id="sb-pct">0%</span>
+    <span class="sb-sep">·</span>
+    <span class="sb-mode" id="sb-mode">paper</span>
+  </div>
+</footer>
 
 <script id="content-data" type="application/json">/*__CONTENT_JSON__*/</script>
 <script id="nav-data"     type="application/json">/*__NAV_JSON__*/</script>
