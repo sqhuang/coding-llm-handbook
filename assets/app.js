@@ -480,8 +480,8 @@
     sec.classList.toggle("empty", !sectionText);
   }
   function setStatusbarMode() {
-    const theme = document.documentElement.dataset.theme || "light";
-    document.getElementById("sb-mode").textContent = theme === "dark" ? "midnight" : "paper";
+    const accent = document.documentElement.dataset.accent || "purple";
+    document.getElementById("sb-mode").textContent = "midnight · " + accent;
   }
   function refreshOverallProgress() {
     const total = NAV.length;
@@ -504,14 +504,14 @@
       mins > 0 ? `≈ ${Math.round(mins)} 分钟剩余` : "✓ 全部读完";
   }
 
-  // ---- Theme ----
+  // ---- Accent (replaces old light/dark theme; we are dark-only now) ----
+  const ACCENTS = ["purple", "cyan", "amber"];
   document.getElementById("theme-btn").addEventListener("click", () => {
     const html = document.documentElement;
-    const next = html.dataset.theme === "dark" ? "light" : "dark";
-    html.dataset.theme = next;
-    document.getElementById("hljs-light").disabled = (next === "dark");
-    document.getElementById("hljs-dark").disabled  = (next === "light");
-    localStorage.setItem("theme", next);
+    const curr = html.dataset.accent || "purple";
+    const next = ACCENTS[(ACCENTS.indexOf(curr) + 1) % ACCENTS.length];
+    html.dataset.accent = next;
+    localStorage.setItem("accent", next);
     setStatusbarMode();
   });
 
@@ -639,11 +639,13 @@
   }, { passive: true });
 
   // ---- Restore prefs ----
-  const savedTheme = localStorage.getItem("theme");
-  if (savedTheme) {
-    document.documentElement.dataset.theme = savedTheme;
-    document.getElementById("hljs-light").disabled = (savedTheme === "dark");
-    document.getElementById("hljs-dark").disabled  = (savedTheme === "light");
+  // Dark theme is forced; we no longer respect a saved light/dark.
+  document.documentElement.dataset.theme = "dark";
+  document.getElementById("hljs-light").disabled = true;
+  document.getElementById("hljs-dark").disabled  = false;
+  const savedAccent = localStorage.getItem("accent");
+  if (savedAccent && ACCENTS.includes(savedAccent)) {
+    document.documentElement.dataset.accent = savedAccent;
   }
   const savedFont = localStorage.getItem("fontsize");
   if (savedFont) document.documentElement.dataset.fontsize = savedFont;
