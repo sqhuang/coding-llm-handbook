@@ -155,7 +155,41 @@ WSD 的好处：
 - **Decay 段**很短却能显著降低 loss —— MiniCPM 实验显示 decay 段 loss 下降幅度等价于 stable 段 10× tokens。
 - 非常适合把 mid-training 放进去：整个 mid-training 就是 decay 段。
 
-### 3.4 实操建议
+### 3.4 一张图看懂 Cosine vs 二次退火 vs WSD
+
+```mermaid
+flowchart LR
+    classDef cool fill:#1c2434,stroke:#5fb8e8,color:#d8e8f8
+    classDef warm fill:#3a2e1a,stroke:#e8c465,color:#f5ecd6
+    classDef hot fill:#3a2a4a,stroke:#c084fc,color:#f0e6ff
+
+    subgraph A["传统 Cosine (一条曲线到底)"]
+      A1["Warmup<br/>lr 0 → peak<br/>~2% steps"]:::cool
+      A2["Cosine decay<br/>peak → 10%·peak<br/>整段训练"]:::cool
+      A1 --> A2
+    end
+
+    subgraph B["方案 A · 二次退火 (Re-Warmup + Re-Decay)"]
+      B1["原 pretrain<br/>cosine 收尾<br/>~3e-5"]:::cool
+      B2["重新 warmup<br/>3e-5 → 1e-4<br/>~2% mid-train steps"]:::warm
+      B3["Linear decay<br/>1e-4 → 3e-6<br/>剩余 mid-train"]:::warm
+      B1 --> B2 --> B3
+    end
+
+    subgraph C["方案 B · WSD (Warmup-Stable-Decay)"]
+      C1["Warmup<br/>0 → peak<br/>~2% steps"]:::hot
+      C2["Stable 平台<br/>lr = peak<br/>≥ 80% steps"]:::hot
+      C3["Decay 段 = mid-training<br/>linear → 0<br/>~10-20% steps"]:::hot
+      C1 --> C2 --> C3
+    end
+```
+
+**怎么看**：
+- **Cosine**：lr 单调下降，pretrain 末期模型基本停学，mid-training 切进来还要重新拉起来。
+- **方案 A**：在 cosine 末尾人为"反弹一次"再下降——能控制但形状别扭，loss 曲线常见小起伏。
+- **方案 B / WSD**：stable 段保持高 lr，decay 段一次性下到 0——MiniCPM 实验显示 decay 段的 loss 下降量 ≈ stable 段 10× tokens 的下降量，是当前主流。
+
+### 3.5 实操建议
 
 - 如果你是从别人的 pretrain ckpt 继续训：**方案 A 更安全**，因为你无法控制原作者的 schedule，二次 warmup 能让你重新控制 lr。
 - 如果你从头设计管线：**直接 WSD**，mid-training = decay 段，省心。
@@ -261,6 +295,28 @@ LongRoPE2（2025 年）进一步用可微搜索（straight-through estimator）�
 **工程推荐**：
 - 扩到 32K 以内：**YaRN** 就够，配方成熟、继续训 ~30B token。
 - 扩到 128K–1M：**LongRoPE** 更稳，尤其对长上下文 retrieval 任务（needle-in-haystack）准确率优势明显。
+
+### 4.9 一张图：怎么按目标 ctx 选方法
+
+```mermaid
+flowchart TD
+    classDef rec fill:#3a2a4a,stroke:#c084fc,color:#f0e6ff,stroke-width:2px
+    classDef ok  fill:#1c2434,stroke:#5fb8e8,color:#d8e8f8
+    classDef warn fill:#3a2e1a,stroke:#e8c465,color:#f5ecd6
+
+    Q{"目标有效 ctx?<br/>(RULER needle ≥ 85%)"}
+    Q -- "≤ 原生 (≤ 32K)" --> A0["不扩<br/>原生 RoPE 够用"]:::ok
+    Q -- "32K → 128K" --> A1["YaRN (factor 2–4×)<br/>· 训练 ~20-30B token<br/>· 主流默认 (DeepSeek-V3 / Qwen)"]:::rec
+    Q -- "128K → 256K" --> A2["LongRoPE<br/>非均匀缩放搜索<br/>训练成本高 (~50B token)"]:::warn
+    Q -- "256K → 1M+" --> A3["LongRoPE + 长上下文专项数据<br/>+ ring attention 工程加持<br/>(GLM-5.1 / DeepSeek 级别才做)"]:::warn
+
+    NB["先别上线扩 ctx 模型<br/>直到 RULER needle ≥ 85%<br/>且 LongBench-v2 不退化"]:::warn
+    A1 -.先验真.-> NB
+    A2 -.先验真.-> NB
+    A3 -.先验真.-> NB
+```
+
+> ⚠️ 看到「能跑 200K prompt」就觉得"长上下文已经搞定"是常见坑——**PPL 不掉不代表 needle 检索能行**。务必跑 RULER 13 task 确认 `effective_ctx`。
 
 ---
 

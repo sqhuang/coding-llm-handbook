@@ -38,6 +38,31 @@
 
 ## 1. 评测维度分类
 
+### 1.0 一张图看清 6 个维度的难度梯度
+
+```mermaid
+flowchart TD
+    classDef l0 fill:#1c2434,stroke:#5fb8e8,color:#d8e8f8
+    classDef l1 fill:#1c2434,stroke:#5fb8e8,color:#d8e8f8
+    classDef l2 fill:#3a2e1a,stroke:#e8c465,color:#f5ecd6
+    classDef l3 fill:#3a2a4a,stroke:#c084fc,color:#f0e6ff
+    classDef l4 fill:#3a2a4a,stroke:#c084fc,color:#f0e6ff,stroke-width:2px
+
+    L0["L0 · 函数级 (short, single-fn)<br/>HumanEval (164) / MBPP (1k)<br/>📐 SOTA 已 > 95%，趋于饱和"]:::l0
+    L1["L1 · 函数级 + 鲁棒 (single-fn, +8× tests)<br/>HumanEval+ / MBPP+ (EvalPlus)<br/>📐 SOTA ~ 90%，仍是入门基线"]:::l1
+    L2["L2 · 竞赛级 (medium-horizon)<br/>LiveCodeBench (时间窗) / APPS / CodeContests<br/>📐 SOTA 35-60%，最能区分新模型"]:::l2
+    L3["L3 · 仓库级 / 简单 issue (multi-file)<br/>SWE-Bench Lite (300) / RepoBench<br/>📐 SOTA 60-75%"]:::l3
+    L4["L4 · 仓库级 / 难题 (multi-file, 人审)<br/>SWE-Bench Verified (500) / Pro<br/>📐 SOTA 50-65% · GLM-5.1 Pro 58.4"]:::l4
+    L5["L5 · Agent 行为 (full loop)<br/>SWE-Bench harness / Aider edit / TerminalBench<br/>📐 含轮次 / token / wall time 多维"]:::l4
+
+    L0 --> L1 --> L2 --> L3 --> L4 --> L5
+
+    SIDE["侧线 · 多语言 (MultiPL-E / HumanEval-X)<br/>+ 执行理解 (CRUXEval IP/OP)"]:::l0
+    L2 -.-> SIDE
+```
+
+**为什么按这个顺序读榜**：跳过 L0/L1 看 L4，得到的分数虚高且无可比性；只看 L0/L1，区分不开 2025+ 模型（都饱和）。**真实选型应看 L2-L4 三档分别报告**——SWE-Bench Verified 是 2025-2026 当家旗舰指标。
+
 ### 1.1 函数级（short-horizon, single function）
 
 - **HumanEval** (Chen et al. 2021, OpenAI)

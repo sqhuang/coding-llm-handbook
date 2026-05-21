@@ -444,25 +444,46 @@ Rollout 占 RL 总时间 70%+。优化：
 
 ### 6.1 Actor-Learner 分布式架构
 
-现代 LLM RL 都是**三角色架构**：
+现代 LLM RL 都是**rollout ↔ trainer 解耦的 hybrid engine**：
 
+```mermaid
+flowchart LR
+    classDef gpu fill:#3a2a4a,stroke:#c084fc,color:#f0e6ff,stroke-width:2px
+    classDef cpu fill:#1c2434,stroke:#5fb8e8,color:#d8e8f8
+    classDef store fill:#2a2a2a,stroke:#8a96a8,color:#d8dee9
+
+    DP["📋 Prompt Pool<br/>(SQLite / S3)"]:::store
+    R["🚀 Rollout Workers<br/>vLLM / SGLang<br/>(GPU · 推理引擎)"]:::gpu
+    SBX["🐳 Sandbox Pool<br/>pytest / shell / Docker<br/>(CPU · 几百并发)"]:::cpu
+    BUF["📦 Trajectory Buffer<br/>(prompt, traj, reward)"]:::store
+    L["🎯 Trainer / Learner<br/>FSDP / Megatron<br/>(GPU · backward + step)"]:::gpu
+    REF["🧊 Reference Model<br/>frozen · 算 KL"]:::gpu
+
+    DP -- prompt batch --> R
+    R -- "(traj, action)" --> SBX
+    SBX -- "(obs, reward)" --> R
+    R -- "完整轨迹 + reward" --> BUF
+    BUF -- minibatch --> L
+    REF -.logπ_ref.-> L
+    L -. "weight sync<br/>(NCCL bcast / 共享 ckpt)" .-> R
+    L -. "policy refresh" .-> REF
 ```
-┌───────────┐    prompts    ┌────────────┐   rollouts   ┌───────────┐
-│ Data pool │──────────────▶│ Rollout(s) │─────────────▶│  Learner  │
-└───────────┘               │  (vLLM/SGL)│              │  (trainer)│
-                            └──────┬─────┘              └─────┬─────┘
-                                   │   weights sync (NCCL /    │
-                                   │     shared mem / file)    │
-                                   └───────────────────────────┘
-```
 
-- **Rollout workers**：跑 inference 引擎（vLLM/SGLang），GPU 利用率主要在这里。
-- **Trainer**：Megatron / FSDP / DeepSpeed，做 backward + optimizer step。
-- **Weight sync**：每 n 个 step 把最新策略权重推给 rollout workers（通常通过 NCCL broadcast 或共享权重文件）。
-- **Reference model**：单独常驻 GPU，做 KL 计算（或直接在 learner 里做）。
-- **Verifier / Sandbox pool**：CPU-bound，单独一批机器。
+**每个角色的职责 + 资源占用**：
 
-这是一套典型的"**hybrid engine**"—— rollout 与 training 分离，既能利用 inference 引擎的加速，又能保持训练灵活性。
+| 角色 | 干什么 | GPU/CPU | 占 RL 总算力 |
+|---|---|---|---|
+| **Rollout workers** | 跑 inference 引擎（vLLM/SGLang），生成 G 条采样 / prompt | GPU · prefix caching 友好 | **40-60%**（rollout 是 RL 主时间杀手） |
+| **Sandbox pool** | 执行 tool_call、跑 pytest、调编译器，给 reward 信号 | CPU · 几百 warm container 常驻 | 10-20% wall（但不占 GPU） |
+| **Trainer** | backward + optimizer step；FSDP / Megatron 切片 | GPU · 显存最吃紧 | 30-40% |
+| **Reference model** | frozen 副本，算 `log π_ref` 给 KL 项 | GPU · 单卡常驻 / 或借 learner shard | 5-10% |
+| **Weight sync** | 每 n step 把 learner 的最新权重广播给 rollout | NCCL broadcast / shared file | 单次 5-30s（每 16-32 step 触发一次） |
+
+**两种部署模式**（VERL 都支持）：
+- **Disaggregate**（slime / GLM-4.5 风格）：rollout 和 trainer 各占独立 GPU，互不抢资源、可独立扩缩。**异步**强，但需要 2 套权重副本，显存翻倍。
+- **Colocate**：同一组 GPU 在 rollout 和 trainer 之间时分复用，靠 Ray actor 切换。**省显存**但 GPU 利用率有 gap。
+
+这就是"**hybrid engine**" —— rollout 用 inference 引擎加速（vLLM 比 HF generate 快 5-20×），trainer 保留训练灵活性（任意 backward 图）。
 
 ### 6.2 主流开源 RL 框架对比
 

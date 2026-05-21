@@ -207,6 +207,26 @@ OpenAI / Anthropic / GLM 的 tool-calling 格式略有差异，但本质都是�
 
 SFT 时，**只对 assistant 的 content + tool_calls 算 loss**，user / tool / system 都 mask 掉。
 
+```mermaid
+flowchart LR
+    classDef mask fill:#1c1c1c,stroke:#4a5566,color:#8a96a8
+    classDef train fill:#3a2a4a,stroke:#c084fc,color:#f0e6ff,stroke-width:2px
+
+    S["system<br/>tools=[...]"]:::mask
+    U["user<br/>issue 描述"]:::mask
+    A1["assistant<br/>思考 + tool_call(bash)"]:::train
+    T1["tool result<br/>ls 输出"]:::mask
+    A2["assistant<br/>思考 + tool_call(read_file)"]:::train
+    T2["tool result<br/>文件内容"]:::mask
+    AN["assistant<br/>最终答复"]:::train
+
+    S --> U --> A1 --> T1 --> A2 --> T2 --> AN
+
+    NB["🎯 实色块 = 算 loss<br/>灰块 = mask 掉"]:::train
+```
+
+> ⚠️ **常见坑** · `system + tools` 段的 token 数往往占 30%+，全部 mask 后大量 GPU 算力浪费在"白算 forward"——这是正常代价，**不要**为了"算力利用率"把 system 也算 loss，否则模型会去"记忆系统提示"。
+
 ### 3.3 如何合成：用 SOTA 模型在 sandbox 里跑
 
 标准工业做法（OpenHands / SWE-Gym / AgentInstruct）：

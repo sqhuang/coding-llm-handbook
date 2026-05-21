@@ -4,7 +4,7 @@
 
 > **⚡ 三句话要点**
 > 1. DSA 不预先定死稀疏模式——每个 query 动态挑 top-N KV，配 Lightning Indexer 打分；这也是 KV 工作集碎片化的工程根源。
-> 2. 小规模复现首选 **torchtitan**（几千行 PyTorch 原生，MoE/EP/FP8 跟进最快），8×H100 训 1B 量级 MoE 目标 MFU ≥ 35%。
+> 2. 小规模复现首选 **torchtitan**（几千行 PyTorch 原生，MoE/EP/FP8 跟进最快），8×H100 训 1B 量级 MoE 目标 MFU ≥ 35%（MFU = Model FLOPs Utilization · 实际算力 / 理论峰值）。
 > 3. 2025 下半年 MoE "新四样"：**Muon** 替代 AdamW、**aux-loss-free routing**（bias 调节专家负载）、**FP8 混合精度**、**repo-level packing**。
 
 > 目标模型：GLM-5.1（754B MoE-DSA）。主线参考：GLM-4.5 技术报告（arXiv 2508.06471），辅以 DeepSeekMoE（2401.06066）、DeepSeek-V3（2412.19437）、DeepSeek-V3.2 Exp (DSA) 的公开材料，以及 Megatron-LM / torchtitan / nanotron 的工程实践。
@@ -24,7 +24,9 @@ Phase 2 的核心任务是把"模型结构"与"训练基础设施"两条线打�
 2. 能在 8×H100（或 8×A100）上把一个 0.5B–1.5B 的 MoE 小模型从零训起来，loss 曲线健康、MFU 达到 35% 以上。
 3. 能看懂 Megatron-LM / torchtitan / nanotron 的启动脚本，并能改参数做对比实验。
 
-不追求"复现 754B"，而是把关键技术点（MoE 路由、DSA、MLA、FP8、EP+TP 组合、MTP）在小规模上打通。大规模的硬件优化留到 Phase 3。
+不追求"复现 754B"，而是把关键技术点（MoE 路由、DSA、MLA、FP8、**EP**(Expert Parallel · 专家并行)+**TP**(Tensor Parallel · 张量并行) 组合、**MTP**(Multi-Token Prediction · 多 token 预测)）在小规模上打通。大规模的硬件优化留到 Phase 3。
+
+> 💡 **本章高频缩写一览**（按首次出现顺序）：MoE = Mixture of Experts（专家混合）· EP = Expert Parallel（专家并行）· TP = Tensor Parallel（张量并行）· PP = Pipeline Parallel（流水线并行）· FSDP = Fully Sharded Data Parallel · MLA = Multi-head Latent Attention · DSA = DeepSeek Sparse Attention · MTP = Multi-Token Prediction · FP8 = 8-bit 浮点（E4M3 / E5M2 两种 mantissa 分配）· MFU = Model FLOPs Utilization。详细定义见 [▣ 索引](./phase_glossary.md)。
 
 ---
 
