@@ -17,6 +17,7 @@
     phase6:     "Eval",
     phase7:     "Deploy",
     phase8:     "Agent",
+    tooluse:    "Tool Use",
     lab:        "Lab",
     capstone:   "Capstone",
     outro:      "What's Next",

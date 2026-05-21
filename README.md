@@ -93,6 +93,7 @@ flowchart LR
 | 6 | [phase6_evaluation.md](./phase6_evaluation.md) | HumanEval+ / LiveCodeBench / SWE-Bench harness | 30k |
 | 7 | [phase7_deployment.md](./phase7_deployment.md) | SGLang/vLLM/KTransformers + FP8 + MTP | 33k |
 | 8 | [phase8_agent_apps.md](./phase8_agent_apps.md) | Agent 架构 + 300 行 minimal agent 实现 | 40k |
+| ⚒ | [phase_tooluse.md](./phase_tooluse.md) | **Tool Use 速读** · 横切 phase4/5/8 的 7 节点主线 + 业界 8 例（Claude / OpenAI strict / MCP / Claude Code / SWE-agent / OpenHands / GLM-4.5 ARC / xLAM / Cursor apply-patch） | 6k |
 | ▣ | [phase_glossary.md](./phase_glossary.md) | **术语速查** · 48 条按主题分组（架构/数据/训练/RL/评测/部署） · 每条带「详见 §X.Y」 | 12k |
 | ✦ | [phase_lab.md](./phase_lab.md) | 30-60 分钟可跑的 A vs B 对比实验册（15 个） | 35k |
 | ✪ | [phase_capstone.md](./phase_capstone.md) | **4 周端到端 capstone** · 串起 phase0-8 的 19 个 step，每步给卡 / 数据 / 模型 / 超参 / 验收 / 思考题 | 13k |
