@@ -7,6 +7,8 @@
 > 2. **纯 RLVR 在 agent 方向不够**（单测/编译通过率作奖励对长轨迹太稀疏），必须补 **subgoal shaping** 或 **process signal**。
 > 3. Reward hacking 四大坑：测试覆盖率不够 → 模型刷捷径；RM 训不到位 → policy 漂移；KL 约束太松 → 风格崩；rollout/training 分布偏移 → off-policy bias。
 
+> Tool use 主线 → [⚒ phase_tooluse](./phase_tooluse.md)：本章 §4-§5 在 tool-use 全链路里是「reward shaping（schema 合法性 + 任务成功）」节点。
+
 > 适用对象：中文 AI 研究者 / 想复现 coding LLM RL pipeline 的工程师
 > 时间戳：2026-04
 > 主线模型：GLM-5.1 / GLM-4.5 ARC

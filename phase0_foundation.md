@@ -7,6 +7,8 @@
 > 2. MoE-DSA 的 DSA = **DeepSeek Sparse Attention**（Lightning Indexer + top-k KV），不是 Dense-Sparse-Alternating；把注意力从 O(L²) 降到 O(L·k) 才让 200K 真"能用"。
 > 3. 训练方法沿用 GLM-4.5 ARC（两段 23T pretrain + 7T 代码/推理上采样 + mid-train 128K + slime 异步 RL），优化器从 AdamW 换成 Muon 是 2025 下半年 MoE 大模型的新换法。
 
+> Tool use 主线 → [⚒ phase_tooluse](./phase_tooluse.md) · 把"教模型调工具"这条横切 phase4/5/8 的线串起来，含业界 8 例（Claude / MCP / SWE-agent / GLM-4.5 ARC / xLAM…）。
+
 > 立项日期：2026-04-22
 > 主线模型：GLM-5.1 (Z.ai, 2026-04-07 发布, 754B MoE-DSA, MIT)
 > 目标读者：具备 GPU 推理优化背景的独立研究者
