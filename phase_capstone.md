@@ -23,6 +23,7 @@
 |---|---|---|
 | 主硬件 | **8 × H100 80GB SXM** · NVLink + IB 400G | 公司自建或 Lambda / RunPod / 火山按需 |
 | 退路硬件 | 4 × A100 80GB | 跳过 mid-training（step 5）、SFT 改 QLoRA 即可继续 |
+| **暂时没专业卡？** | 1-2 × RTX 4090/5090 | 走 [💻 phase_consumer](./phase_consumer.md)：先做 step 01/04/11/17/19 + QLoRA 9B + Code RAG + mini-agent，等专业卡到货前 80% 的认知性工作不用等 |
 | 存储 | NVMe ≥ 4TB · 网盘 ≥ 10TB | The Stack v2 Python 子集 + ckpt + 评测产物 |
 | 网络 | HF mirror（推荐 modelscope 国内镜像 / hf-mirror.com） | 单次 GLM-4.5-Air-Base 下载 ~200GB |
 | 预算上限 | **2000 H100-hour（≈ $4K）** + 数据 / API ~$300 | 超 30% 必须重新评审，否则砍 scope |

@@ -385,6 +385,7 @@ LLaMA Factory 在 `dataset_info.json` 里用 `role_tag` 字段明确角色，ms-
 - **预算充足（8×A100/H100）** → Full SFT，上限最高。
 - **单机 4-8 卡，GLM-4.5-Air 级别** → LoRA（rank 32-64）是主力。
 - **单卡 48GB，想碰 32B 以上** → QLoRA。
+- **单卡 24GB（消费级 4090）想训 9-14B** → QLoRA r=32 + grad checkpointing；具体配置和踩坑见 [💻 phase_consumer §3.1](./phase_consumer.md)。
 - **LoRA 效果不够且预算紧** → 升级到 DoRA。
 - **想 Full 但差 20% 显存** → GaLore。
 

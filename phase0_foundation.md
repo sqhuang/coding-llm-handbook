@@ -9,6 +9,8 @@
 
 > Tool use 主线 → [⚒ phase_tooluse](./phase_tooluse.md) · 把"教模型调工具"这条横切 phase4/5/8 的线串起来，含业界 8 例（Claude / MCP / SWE-agent / GLM-4.5 ARC / xLAM…）。
 
+> 手头只有消费级显卡？→ [💻 phase_consumer](./phase_consumer.md) · 1×4090/5090 / Mac 能做什么 + 4 个今天就能开工的 starter，**80% 的认知性工作不用等专业卡**。
+
 > 立项日期：2026-04-22
 > 主线模型：GLM-5.1 (Z.ai, 2026-04-07 发布, 754B MoE-DSA, MIT)
 > 目标读者：具备 GPU 推理优化背景的独立研究者
