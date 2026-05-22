@@ -97,6 +97,7 @@ flowchart LR
 | ▣ | [phase_glossary.md](./phase_glossary.md) | **术语速查** · 48 条按主题分组（架构/数据/训练/RL/评测/部署） · 每条带「详见 §X.Y」 | 12k |
 | ✦ | [phase_lab.md](./phase_lab.md) | 30-60 分钟可跑的 A vs B 对比实验册（15 个） | 35k |
 | ✪ | [phase_capstone.md](./phase_capstone.md) | **4 周端到端 capstone** · 串起 phase0-8 的 19 个 step，每步给卡 / 数据 / 模型 / 超参 / 验收 / 思考题 | 13k |
+| 💻 | [phase_consumer.md](./phase_consumer.md) | **消费卡实战路径** · 没有 H100 怎么办？4090/5090/Mac 能做什么 + 4 个今天就能开工的项目 + 24/7 训练的实操注意 | 8k |
 | 🧪 | [`examples/`](./examples/) | 5 份可直接跑的脚本：datatrove 数据 / SFT 抽取 / GRPO / SWE-Bench 采集 / mini-agent | — |
 | 📋 | [`tools/track.py`](./tools/track.py) | capstone 看板 CLI · todo/doing/blocked/done 四态 · 状态存 [`tracker.json`](./tracker.json) | — |
 | 📦 | [`capstone_runtime/`](./capstone_runtime/) | **拷到目标机即可用的实验骨架** · 19 step 脚本 + configs + 19 单元测试 + preflight；README 红线划清"已 verify / 需在你机器 verify" | — |

@@ -20,6 +20,7 @@
     tooluse:    "Tool Use",
     lab:        "Lab",
     capstone:   "Capstone",
+    consumer:   "Consumer",
     outro:      "What's Next",
     glossary:   "Glossary",
     references: "References",
