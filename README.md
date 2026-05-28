@@ -37,6 +37,52 @@
 > **前置知识** · 知道 Transformer / MoE / KV cache 大致是什么；用过 PyTorch 和 HuggingFace；不需要 LLM 训练经验。
 > **学完能做** · 能在 8 个 phase 里精准定位某个工程问题（数据/架构/RL/部署/agent）属于哪一段、应该读哪份笔记。
 
+## 按角色读法 · 30 万字怎么读
+
+30 万字一锅端没人能从头读到尾。按你当前的角色挑路径，**每条都给了时间预算 + 顺序 + 跳过哪段**：
+
+### 🔧 推理 / 部署工程师（2 小时速通）
+你目标是把模型服务化，不关心训练细节。
+1. [phase0 §1 GLM-5.1 架构表](./phase0_foundation.md) (10min) — 知道 MoE-DSA / MLA 是什么
+2. [phase7 整章](./phase7_deployment.md) (60min) — SGLang / vLLM / KTransformers / FP8 / 量化 / spec decoding
+3. [phase8 §1-§2](./phase8_agent_apps.md) (30min) — 怎么把 endpoint 接进 agent 外壳
+4. [💻 phase_consumer §3.4](./phase_consumer.md) (20min) — 4090 上 Int4 部署的现实
+5. **跳过**：phase1/2/3/4/5（数据 + 训练）
+
+### 🧪 预训练新手（1 周认知 + 1 月动手）
+你目标是理解从 0 训一个 MoE，并在小规模动手。
+- **Day 1-2**：[phase_basics_training](./phase_basics_training.md) + [phase0](./phase0_foundation.md)
+- **Day 3-4**：[phase1 数据](./phase1_data_pipeline.md) + [phase2 架构](./phase2_pretraining.md)
+- **Day 5-7**：[phase3 mid-training + 长上下文](./phase3_midtraining_longcontext.md) + [phase_math](./phase_math.md) 公式速查
+- **Week 2-4**：开 [✪ phase_capstone](./phase_capstone.md) capstone，sticker 跑 step 5/6 小规模 MoE
+- **跳过**：phase4/5/8 暂时
+
+### 🎯 SFT / 后训练工程师（3 天）
+你手头有 base model，想做对齐 + 调工具。
+1. [phase_basics §14 chat template](./phase_basics_training.md) (1h) — 契约性质
+2. [phase4 整章](./phase4_sft.md) (1 day) — 数据 + LoRA/QLoRA + agent 轨迹
+3. [phase5 §1-§4](./phase5_rl.md) (1 day) — GRPO 算法 + reward 设计
+4. [⚒ phase_tooluse](./phase_tooluse.md) (2h) — tool-use 完整主线 + 业界 8 例
+5. [📓 phase_failures](./phase_failures.md) (1h) — 翻一遍知道哪些坑可能踩
+
+### 🤖 Agent 应用工程师（2 天）
+你不训模型，只把 LLM 接到 IDE / SaaS。
+1. [phase0 §1](./phase0_foundation.md) (20min) — 知道用的是个什么 base
+2. [phase7 §1-§4](./phase7_deployment.md) (3h) — 部署性能影响 UX
+3. [phase8 整章](./phase8_agent_apps.md) (1 day) — agent 6 层 + Cline/Roo/Claude Code 接入 + 自建 minimal agent
+4. [⚒ phase_tooluse §4](./phase_tooluse.md) (1h) — 业界 8 例参考
+5. **跳过**：phase1/2/3/4/5 训练全栈
+
+### 📊 决策者 / 招聘者（1 小时全景）
+你不写代码，要拍板技术路线 / 评估候选人。
+1. [phase0 §1-§5 速览表 + 现实目标](./phase0_foundation.md) (20min)
+2. [README §9 一句话结论 + §对你的全链路推进建议](./README.md) (15min)
+3. [💻 phase_consumer §1 硬件分级 + §6 cloud 经济](./phase_consumer.md) (15min)
+4. [✪ phase_capstone §0 边界 + §2 step 概览](./phase_capstone.md) (10min)
+5. [📋 phase_tldr](./phase_tldr.md) (10min) — 全书 ⚡ + 📌 速读卡，可以打印当备忘
+
+---
+
 ## 术语与代码片段约定
 
 为了 30 万字读起来不打架，全篇统一了几个高频术语用法：
