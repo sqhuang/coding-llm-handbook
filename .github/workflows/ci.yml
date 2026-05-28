@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Node (for mmdc) + python tier-1 deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r capstone_runtime/requirements.txt
+
+      # --- Capstone runtime tests (CPU-only tier-1) ----------------------------
+      - name: Run capstone_runtime tests (preflight / track / decontam / reward)
+        run: |
+          cd capstone_runtime
+          python -m pytest tests/ -q --tb=short
+
+      # --- Site build (link checker + mermaid syntax) --------------------------
+      # The build script aborts on any broken anchor or invalid mermaid. We use
+      # `MERMAID_SKIP=1` so we don't need to install mmdc + Chrome on every CI
+      # run — only the link/include/anchor check matters here. A nightly job (or
+      # release branch) can do a full mermaid rebuild.
+      - name: Site build (link + include + anchor check; mermaid skipped)
+        env:
+          MERMAID_SKIP: "1"
+        run: |
+          python build.py
+
+      # --- Step script syntax sanity ------------------------------------------
+      - name: Step scripts parse cleanly
+        run: |
+          for f in capstone_runtime/steps/*.py capstone_runtime/tools/*.py; do
+            python -c "import ast; ast.parse(open('$f').read())" || exit 1
+          done
+          for f in capstone_runtime/steps/*.sh; do
+            bash -n "$f" || exit 1
+          done

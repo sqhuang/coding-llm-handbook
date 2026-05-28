@@ -1,3 +1,14 @@
+# tools/ — 仓库小工具一览
+
+| 工具 | 用途 | 入口 |
+|---|---|---|
+| `track.py` | capstone 看板（todo / doing / blocked / done），状态存 tracker.json | `python tools/track.py board` |
+| `cost_calc.py` | 训练 / 推理成本估算（6N·D · GPU-hour · 电费） | `python tools/cost_calc.py train --params 9e9 --tokens 5e9 --gpu h100 --n-gpu 8` |
+| `preflight.py`（在 capstone_runtime 里） | 目标机 HW/SW/网络自检 | `python capstone_runtime/tools/preflight.py` |
+| `export_pdf.sh` | 用 Chrome headless 把 index.html → cookbook.pdf | `bash tools/export_pdf.sh` |
+
+---
+
 # `tools/track.py` — capstone 看板 CLI
 
 > 配套实验册：[`../phase_capstone.md`](../phase_capstone.md)

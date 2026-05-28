@@ -10,6 +10,7 @@ import concurrent.futures
 import datetime
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -98,12 +99,26 @@ def render_mermaid(source: str, theme: str) -> tuple[str, bool]:
     """Render mermaid source to SVG string, cached on disk by content hash.
 
     Returns (svg_string, ok_flag).
+
+    Set env `MERMAID_SKIP=1` to skip mmdc invocation entirely — useful in CI
+    where we only care about link/include checks, not visual diagrams.
     """
     cfg = CFG_LIGHT if theme == "light" else CFG_DARK
     h = hashlib.sha256((source + theme).encode("utf-8")).hexdigest()[:16]
     out = CACHE / f"{h}-{theme}.svg"
     if out.exists():
         return out.read_text(encoding="utf-8"), True
+
+    if os.environ.get("MERMAID_SKIP"):
+        # Use a tiny placeholder SVG; no mmdc needed
+        placeholder = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="40" '
+            f'viewBox="0 0 320 40"><rect width="100%" height="100%" fill="none" '
+            f'stroke="#888" stroke-dasharray="4 4"/><text x="50%" y="55%" '
+            f'text-anchor="middle" font-family="monospace" font-size="11" '
+            f'fill="#888">mermaid skipped ({theme})</text></svg>'
+        )
+        return placeholder, True
 
     inp = CACHE / f"{h}.mmd"
     inp.write_text(source, encoding="utf-8")
