@@ -144,6 +144,13 @@ flowchart LR
 | ✦ | [phase_lab.md](./phase_lab.md) | 30-60 分钟可跑的 A vs B 对比实验册（15 个） | 35k |
 | ✪ | [phase_capstone.md](./phase_capstone.md) | **4 周端到端 capstone** · 串起 phase0-8 的 19 个 step，每步给卡 / 数据 / 模型 / 超参 / 验收 / 思考题 | 13k |
 | 💻 | [phase_consumer.md](./phase_consumer.md) | **消费卡实战路径** · 没有 H100 怎么办？4090/5090/Mac 能做什么 + 4 个今天就能开工的项目 + 24/7 训练的实操注意 | 8k |
+| 📋 | [phase_tldr.md](./phase_tldr.md) | **15 分钟速读卡** · 全书 13 章 ⚡ + 📌 抽到一页 + 总览表 | 4k |
+| 📓 | [phase_failures.md](./phase_failures.md) | **失败模式 cookbook** · 25 条按概率排序的排查清单（NaN / RL 卡 0 / vLLM OOM / RAG miss 等） | 9k |
+| 🗂 | [phase_datasets.md](./phase_datasets.md) | **数据卡片库** · 25 张主流数据集（pretrain 11 / SFT 9 / eval 5）每张含 license / 规模 / 坑 | 8k |
+| 🧮 | [phase_math.md](./phase_math.md) | **公式集中页** · 15 条 KaTeX 速查（RMSNorm / RoPE / YaRN / MLA / DSA / GRPO / DPO …） | 7k |
+| 🧬 | [phase_repro_r1.md](./phase_repro_r1.md) | **复现 R1 关键现象** · 1×4090 12-18h 看到 reward + length 同步上升 | 7k |
+| 🔬 | [phase_mla_walk.md](./phase_mla_walk.md) | **MLA 实现拆解** · 150 行 minimal PyTorch + RoPE 解耦 + KV cache 对比 | 8k |
+| 🔎 | [phase_topic_pagedattention.md](./phase_topic_pagedattention.md) | **PagedAttention 源码导读** · vLLM 6 文件阅读 trail + 80 行 demo | 7k |
 | 🧪 | [`examples/`](./examples/) | 5 份可直接跑的脚本：datatrove 数据 / SFT 抽取 / GRPO / SWE-Bench 采集 / mini-agent | — |
 | 📋 | [`tools/track.py`](./tools/track.py) | capstone 看板 CLI · todo/doing/blocked/done 四态 · 状态存 [`tracker.json`](./tracker.json) | — |
 | 📦 | [`capstone_runtime/`](./capstone_runtime/) | **拷到目标机即可用的实验骨架** · 19 step 脚本 + configs + 19 单元测试 + preflight；README 红线划清"已 verify / 需在你机器 verify" | — |
