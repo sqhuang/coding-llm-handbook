@@ -1,3 +1,12 @@
+# Parked as template. To activate:
+#   gh auth refresh -s workflow            # one-time, opens browser
+#   mkdir -p .github/workflows
+#   mv tools/ci.yml.template .github/workflows/ci.yml
+#   git add .github/workflows/ci.yml
+#   git rm tools/ci.yml.template 2>/dev/null || true
+#   git commit -m "tooling: activate CI workflow"
+#   git push origin main
+
 name: ci
 
 on:
