@@ -7,11 +7,11 @@
 > 2. 启发式过滤照 StarCoder2 规则（行长、字母比例、autogen 标记、必须含 def/class/import）；PII 先过最致命几类（私钥整文件丢，API key / email 替换为占位符）。
 > 3. 最终产出是 mmap `.bin`；喂训练前 **README 摘要 + path tag 必须前置拼到 content 头部**，否则模型学不到跨文件依赖的因果方向。
 
-> 目标读者：准备从零训练一个 Coding LLM 的研究者；主线对齐 GLM-4.5 / GLM-5.1 (arxiv 2508.06471)，交叉参考 StarCoder2 (2402.19173)、OpenCoder (2411.04905)、DeepSeek-Coder-V2 (2406.11931)。
+> 目标读者：准备从零训练一个 Coding LLM 的研究者；主线对齐 GLM-4.5 / GLM-5.2 (arxiv 2508.06471)，交叉参考 StarCoder2 (2402.19173)、OpenCoder (2411.04905)、DeepSeek-Coder-V2 (2406.11931)。
 > 定位：这是一份"能动手跑"的工程笔记，不是综述。所有步骤都给出参数、阈值、代码或工具链。
 
 > **读者画像** · 准备亲手搭一条 ≥ 100B token 代码数据 pipeline 的工程师；或想审计已有数据集是否"可以下锅"的训练 lead。
-> **前置知识** · 用过 Spark / Ray / datatrove 任一种分布式数据处理框架；序.6 [packing](./phase_basics_training.md) 与 phase0 §1 GLM-5.1 速览。
+> **前置知识** · 用过 Spark / Ray / datatrove 任一种分布式数据处理框架；序.6 [packing](./phase_basics_training.md) 与 phase0 §1 GLM-5.2 速览。
 > **学完能做** · 从原始 GitHub dump 跑通 11 步清洗 → 给每一步选阈值 → 输出可直接 mmap 进 Megatron 的 tokenized `.bin`。
 
 ---
@@ -398,7 +398,7 @@ trufflehog git file://./our-repo/ --json > leaks.json
 - **激进**：全部喂进去，靠产品层做访问控制（风险：prompt injection 可能绕过）
 - **分层**：训 2-3 个模型，按访问级别（全员 / 工程部门 / 特定团队）分层微调
   
-GLM-5.1 级别的 MoE 模型还可以尝试"按访问域分专家"，但这是前沿做法。
+GLM-5.2 级别的 MoE 模型还可以尝试"按访问域分专家"，但这是前沿做法。
 
 #### (4) 去重 against 公开数据
 你公司 fork 过的开源项目、引入的 npm/pypi 包、从 StackOverflow 抄的代码，本质已经在公开预训练集里。重复训练这些**浪费算力、加剧过拟合、还干扰信号**。做法：拉 The Stack v2 的 file-level SHA256 表，与你的私有代码做 hash diff，命中的剔除。
@@ -466,7 +466,7 @@ diff --git a/src/refund/policy.py ...
 这是 D 能力（Agent 写单测）的核心数据。
 
 #### 技术 5：Docstring / 注释扩写
-用大模型（GPT-5 / Claude / GLM-5.1 自身）给内部代码**批量生成 docstring**，然后把"代码 → docstring"和"docstring → 代码"双向做成训练样本。这是最廉价的数据增强，通常能涨 5-10 个百分点的内部评测。
+用大模型（GPT-5 / Claude / GLM-5.2 自身）给内部代码**批量生成 docstring**，然后把"代码 → docstring"和"docstring → 代码"双向做成训练样本。这是最廉价的数据增强，通常能涨 5-10 个百分点的内部评测。
 
 #### 技术 6：Commit Message + Diff 指令化
 把 git 历史改写成指令样本：
@@ -626,7 +626,7 @@ Week 3 的 RAG 不是"凑数"——**它本身就是能力 C 的生产方案**�
 
 ---
 
-**一句话带走**：企业私有代码训练的核心不是"我数据少"，而是**"我数据的信号密度要远高于公开代码"**——靠 Issue-PR 对、Test-Code 对、Commit 改写、元数据前置把每个 token 的价值放大 5-10 倍，配上 30-50% 公开代码做 anchoring，中型公司完全有机会做出**比通用 GLM-5.1 更懂自己代码**的专属模型。
+**一句话带走**：企业私有代码训练的核心不是"我数据少"，而是**"我数据的信号密度要远高于公开代码"**——靠 Issue-PR 对、Test-Code 对、Commit 改写、元数据前置把每个 token 的价值放大 5-10 倍，配上 30-50% 公开代码做 anchoring，中型公司完全有机会做出**比通用 GLM-5.2 更懂自己代码**的专属模型。
 
 ---
 
@@ -861,7 +861,7 @@ general_text       (3%)   RedPajama-Common-Crawl 代表性子集
 ```
 
 - **重要**：在 `code_main` 内部按 token 数做 **temperature sampling**（α=0.3 左右），防止 JS/Python 把小语种淹没；OpenCoder / StarCoder2 都这么做。
-- **GLM-4.5 / GLM-5.1** 的配比没完全公开，但 2508.06471 表格里显示 math + reasoning 明显 ≥ 10%，这是它 coding 分高的关键差异之一。
+- **GLM-4.5 / GLM-5.2** 的配比没完全公开，但 2508.06471 表格里显示 math + reasoning 明显 ≥ 10%，这是它 coding 分高的关键差异之一。
 - **DeepSeek-Coder-V2**：code 60% + code-related NL 10% + general NL 30%，general NL 比例高是为了保通用能力，适合做"通用 + coding 双强"的模型。
 - **annealing 阶段**：训练末期把高质量数据（curated tutorial、教材式代码、精选 PR diff）比例拉到 30–50%，学习率同步 decay。OpenCoder 明确用这个。
 
@@ -918,7 +918,7 @@ general_text       (3%)   RedPajama-Common-Crawl 代表性子集
 
 两家都没完全公开配方，但从论文和放出的报告能拼：
 
-| 维度 | DeepSeek-Coder-V2 (2406.11931) | GLM-4.5 / GLM-5.1 ARC (2508.06471) |
+| 维度 | DeepSeek-Coder-V2 (2406.11931) | GLM-4.5 / GLM-5.2 ARC (2508.06471) |
 |---|---|---|
 | 总 token | ~10.2T（含 V1 的 2T + 新增 8.2T） | 未完全披露，推测 15T+ |
 | 代码占比 | 60% | 略高，~65–70% |
@@ -1171,7 +1171,7 @@ def pack_repo(files_in_order, tokenize, max_len=8192):
 - OpenCoder: arxiv 2411.04905（**最值得逐页精读**）
 - DeepSeek-Coder: arxiv 2401.14196（V1，repo-level packing 细节）
 - DeepSeek-Coder-V2: arxiv 2406.11931
-- GLM-4.5 / GLM-5.1 ARC: arxiv 2508.06471
+- GLM-4.5 / GLM-5.2 ARC: arxiv 2508.06471
 - FIM: arxiv 2207.14255
 - RefineCode（OpenCoder 数据篇）：随 2411.04905 一起
 - SlimPajama / Dolma 去重经验：arxiv 2402.00159 (Dolma)

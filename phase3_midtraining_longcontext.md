@@ -7,7 +7,7 @@
 > 2. Mid-training 数据三件套：**repo-level packing 必须按 import 图拓扑排序**（不是随机 shuffle）+ synthetic reasoning 长 CoT + agent 轨迹，序列长度直接拉到 128K。
 > 3. RULER 是验证长上下文"真能用"的关键 benchmark——base 改大会降低长序列 PPL 但短序列 PPL 微涨，所以 mid-training 必须**渐进升级**而非一次切到底。
 
-> 目标：GLM-5.1（官方口径 200K context，agentic 任务支持连续 8 小时运行）
+> 目标：GLM-5.2（官方口径 1M context，agentic 任务支持连续 8 小时运行）
 > 主要参考：GLM-4.5 ARC（arXiv:2508.06471）、YaRN（2309.00071）、LongRoPE（2402.13753）、LongLoRA（2309.12307）、DeepSeek-V3 技术报告、Qwen3 技术报告
 > 面向读者：中国 AI 研究者 / LLM infra 与算法工程师
 > 写作日期：2026-04-22
@@ -98,7 +98,7 @@ Mid-training total budget: ~1.5T tokens
 - 合成：用一个强模型（e.g. GPT-4o / Claude / DeepSeek-R1）对题目生成多条 CoT，再用 verifier（SymPy、答案匹配）过滤保留正确者。这是"reject sampling distillation"思路。
 
 **Tool-use 轨迹（agentic 数据）**：
-- 这部分是 GLM-5.1 能跑"连续 8 小时 agentic 任务"的关键。
+- 这部分是 GLM-5.2 能跑"连续 8 小时 agentic 任务"的关键。
 - 合成 pipeline：在沙盒（docker + bash + python + 浏览器模拟）里让 agent 执行真实任务（修 bug、查文档、跑实验），记录完整 `<thought><action><observation>` 链。
 - 每条轨迹 10K–100K token，天然是长上下文训练素材，一举两得。
 
@@ -308,7 +308,7 @@ flowchart TD
     Q -- "≤ 原生 (≤ 32K)" --> A0["不扩<br/>原生 RoPE 够用"]:::ok
     Q -- "32K → 128K" --> A1["YaRN (factor 2–4×)<br/>· 训练 ~20-30B token<br/>· 主流默认 (DeepSeek-V3 / Qwen)"]:::rec
     Q -- "128K → 256K" --> A2["LongRoPE<br/>非均匀缩放搜索<br/>训练成本高 (~50B token)"]:::warn
-    Q -- "256K → 1M+" --> A3["LongRoPE + 长上下文专项数据<br/>+ ring attention 工程加持<br/>(GLM-5.1 / DeepSeek 级别才做)"]:::warn
+    Q -- "256K → 1M+" --> A3["LongRoPE + 长上下文专项数据<br/>+ ring attention 工程加持<br/>(GLM-5.2 / DeepSeek 级别才做)"]:::warn
 
     NB["先别上线扩 ctx 模型<br/>直到 RULER needle ≥ 85%<br/>且 LongBench-v2 不退化"]:::warn
     A1 -.先验真.-> NB
@@ -402,7 +402,7 @@ Target：8472
 
 ### 5.4 长 agent 轨迹（真实长上下文）
 
-把 agent 在沙盒里跑的真实任务轨迹作为训练数据，是 GLM-5.1 "8 小时连续 agentic" 的关键素材来源。单条轨迹 30K–200K token，自带真实的长程依赖（比如第 20K token 打开的文件，在第 80K token 才被编辑）。
+把 agent 在沙盒里跑的真实任务轨迹作为训练数据，是 GLM-5.2 "8 小时连续 agentic" 的关键素材来源。单条轨迹 30K–200K token，自带真实的长程依赖（比如第 20K token 打开的文件，在第 80K token 才被编辑）。
 
 ---
 
@@ -474,15 +474,16 @@ Target：8472
 
 ---
 
-## 8. GLM-5.1 扩到 200K 的合理推测
+## 8. GLM-5.2 扩到 1M 的合理推测
 
-GLM-5.1 官方未完整披露细节，以下基于 GLM-4.5 ARC（2508.06471）+ 同期 SOTA 的合理推测：
+GLM-5.2 官方未完整披露长上下文扩展细节，以下基于 GLM-4.5 ARC（2508.06471）、IndexCache（2603.12201）+ 同期 SOTA 的合理推测。已知事实：744B total / ~40B active、原生 1M 上下文（`glm-5.2[1m]`，输出上限 131,072）、DSA + IndexShare 稀疏注意力。
 
-### 8.1 推测架构
+### 8.1 已知 + 推测架构
 
-- Backbone：MoE，约 300B total / 30B–40B active（对齐 GLM-4.5 的比例扩展）。
-- 原生训练 ctx：8K。
-- 扩展路径：8K → 32K → 128K → 200K，三阶段 continual pretraining。
+- Backbone：MoE，744B total / ~40B active（沿用 5.1 谱系，官方未单独披露层/专家细节）。
+- 原生训练 ctx：8K（推测）。
+- 扩展路径：8K → 32K → 128K → 256K → 1M，多阶段 continual pretraining（5.1 止于 200K，5.2 再往上一档）。
+- 稀疏注意力是 1M 能"算得起"的前提：DSA 把 O(L²) 降到 O(L·k)，IndexShare 再砍掉 ~75% 的 indexer 计算。
 
 ### 8.2 推测的长上下文配方
 
@@ -491,23 +492,24 @@ GLM-5.1 官方未完整披露细节，以下基于 GLM-4.5 ARC（2508.06471）+ 
 | base pretrain     | 8K   | RoPE base=500k             | 15T+    | 3e-4    |
 | mid-train I       | 32K  | YaRN s=4, continue         | 200B    | 1e-4    |
 | mid-train II      | 128K | **LongRoPE** s=16           | 100B    | 3e-5    |
-| long-ctx extend III| 200K | LongRoPE s=25               | 30B     | 1e-5    |
+| long-ctx extend III| 256K | LongRoPE s=25               | 30B     | 1e-5    |
+| long-ctx extend IV | 1M   | LongRoPE + DSA/IndexShare 联合 | 10B  | 5e-6    |
 
-在 128K 阶段就切到 LongRoPE（而非 YaRN）是关键判断——LongRoPE 在 needle 准确率和 short-ctx 保留两项上都明显优于 YaRN，且 Phi-3-mini-128K 已经验证其可靠性。
+在 128K 阶段就切到 LongRoPE（而非 YaRN）是关键判断——LongRoPE 在 needle 准确率和 short-ctx 保留两项上都明显优于 YaRN，且 Phi-3-mini-128K 已经验证其可靠性。往 1M 这一档，稀疏注意力（DSA）+ IndexShare 几乎是必选项，否则 prefill/decode 都扛不住。
 
-### 8.3 "8 小时连续 agentic" 的技术含义
+### 8.3 "长时间连续 agentic" 的技术含义
 
-- 8 小时 × 假设 5 token/s 输出 + 类似速率输入 ≈ 250K+ 总 token 吞吐。
-- 单次上下文需容纳：工具调用历史 + 文件快照 + 思考链，保守估计 200K。
-- 加上 **KV cache 压缩**（如 H2O、SnapKV、MInference）可以让真实 ctx 达到 500K，而实际 attention 只关注 top-k 关键 token。
+- 长时间自主执行 × 假设 5 token/s 输出 + 类似速率输入 ≈ 数十万到百万级总 token 吞吐，1M 窗口正是为此设计。
+- 单次上下文需容纳：工具调用历史 + 文件快照 + 思考链，1M 窗口下可保守容纳整库级上下文。
+- 加上 **KV cache 压缩**（如 H2O、SnapKV、MInference）+ DSA/IndexShare 的稀疏选择，实际 attention 只关注 top-k 关键 token，才让 1M "用得起"。
 - 需要 attention sink（Efficient Streaming LLM）或 StreamingLLM 机制，防止长时间运行后 early tokens 被替换导致 attention 塌陷。
 
 ### 8.4 推测的评测结果
 
 - RULER 128K：~85（对齐 Llama-3.1 70B）。
-- Needle 200K：~95。
+- Needle 1M：高位（官方主打 1M 可用性，但未放榜）。
 - RepoBench 64K：SOTA 或接近。
-- SWE-bench Verified：~65（对齐 Claude 3.5 Sonnet 水准，这部分是 Phase 4/5 的 agentic RL 贡献）。
+- SWE-bench Pro：第三方/社区口径 ~62.1（5.1 为 58.4），官方未确认；这部分提升主要来自 Phase 4/5 的 agentic RL。
 
 ---
 

@@ -61,7 +61,7 @@ todo ──start──▶ doing ──done──▶ done
       "owner": "sq",
       "gpu": "0 (API only)",
       "data": "HumanEval+ · 内部 5 题",
-      "model": "GLM-5.1 API / Air-Base / Qwen3-Coder-30B-A3B",
+      "model": "GLM-5.2 API / Air-Base / Qwen3-Coder-30B-A3B",
       "hparams": {"temperature": 0.2, "n": 20},
       "eta_hours": 4,
       "eta_cost_usd": 0,

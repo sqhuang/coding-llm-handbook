@@ -1,61 +1,60 @@
-# Phase 0 基础笔记：自训 Coding LLM 与 GLM-5.1 主线调研
+# Phase 0 基础笔记：自训 Coding LLM 与 GLM-5.2 主线调研
 
-> 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
+> 📅 主线快照：2026-06-17 · 上次核对：2026-06-17
 
 > **⚡ 三句话要点**
-> 1. GLM-5.1 = 754B 总参 / 40B 激活 / 78 层（首 3 dense + 75 MoE）/ 256+1 expert / MLA q_lora 2048 · kv_lora 512 / 200K 原生上下文 / MIT。
-> 2. MoE-DSA 的 DSA = **DeepSeek Sparse Attention**（Lightning Indexer + top-k KV），不是 Dense-Sparse-Alternating；把注意力从 O(L²) 降到 O(L·k) 才让 200K 真"能用"。
-> 3. 训练方法沿用 GLM-4.5 ARC（两段 23T pretrain + 7T 代码/推理上采样 + mid-train 128K + slime 异步 RL），优化器从 AdamW 换成 Muon 是 2025 下半年 MoE 大模型的新换法。
+> 1. GLM-5.2 = 744B 总参 / 40B 激活 / `glm_moe_dsa` / **1M 原生上下文**（`glm-5.2[1m]`，输出上限 131,072）/ MIT，2026-06-13 由 Z.ai 放出。结构沿用 5.1 谱系（78 层 / 256+1 expert / MLA），官方未单独披露细节。
+> 2. 5.2 的新架构点是 **IndexShare**（论文里叫 IndexCache，arXiv:2603.12201）：每 4 层稀疏注意力共享同一个 Lightning Indexer，砍掉 75% indexer 计算，号称 1M 下 per-token FLOPs ↓2.9×——这是把 200K 跨到 1M 还"能用"的关键。
+> 3. 训练沿用 GLM-4.5 ARC 谱系（两段 pretrain + 代码/推理上采样 + mid-train 长上下文 + slime 异步 RL），数据从 23T 扩到 28.5T；据报道 5.2 全程华为昇腾、未用 NVIDIA（未独立核实）。新增 high / max 两档推理 effort。
 
 > Tool use 主线 → [⚒ phase_tooluse](./phase_tooluse.md) · 把"教模型调工具"这条横切 phase4/5/8 的线串起来，含业界 8 例（Claude / MCP / SWE-agent / GLM-4.5 ARC / xLAM…）。
 
 > 手头只有消费级显卡？→ [💻 phase_consumer](./phase_consumer.md) · 1×4090/5090 / Mac 能做什么 + 4 个今天就能开工的 starter，**80% 的认知性工作不用等专业卡**。
 
 > 立项日期：2026-04-22
-> 主线模型：GLM-5.1 (Z.ai, 2026-04-07 发布, 754B MoE-DSA, MIT)
+> 主线模型：GLM-5.2 (Z.ai, 2026-06-13 发布, 744B MoE-DSA, 1M 上下文, MIT)
 > 目标读者：具备 GPU 推理优化背景的独立研究者
 
-本笔记目的是把训练一个 SOTA coding LLM 的"技术栈全貌"铺开，并与主线模型 GLM-5.1 对齐。阅读前置假设：读者熟悉 Transformer、MoE、KV cache、FlashAttention、PagedAttention 等工程概念，因此跳过基础解释。
+本笔记目的是把训练一个 SOTA coding LLM 的"技术栈全貌"铺开，并与主线模型 GLM-5.2 对齐。阅读前置假设：读者熟悉 Transformer、MoE、KV cache、FlashAttention、PagedAttention 等工程概念，因此跳过基础解释。
 
-> **读者画像** · 想 1 小时内对齐"GLM-5.1 在 2026 是什么状态"的资深推理/训练工程师，需要数据来排研究优先级。
+> **读者画像** · 想 1 小时内对齐"GLM-5.2 在 2026 是什么状态"的资深推理/训练工程师，需要数据来排研究优先级。
 > **前置知识** · MoE / MLA / RoPE / FP8 / KV cache 都听过；读过 GLM-4.5 ARC 或 DeepSeek-V3 任一篇技术报告者最佳；序章 [phase_basics_training](./phase_basics_training.md) 里的训练力学。
-> **学完能做** · 写一份"GLM-5.1 vs Qwen3-Coder vs DeepSeek-Coder-V2"内部技术评审，并给出现实自训目标。
+> **学完能做** · 写一份"GLM-5.2 vs Qwen3-Coder vs DeepSeek-Coder-V2"内部技术评审，并给出现实自训目标。
 
 ---
 
-## 1. GLM-5.1 速览
+## 1. GLM-5.2 速览
 
-> 本节给的是 GLM-5.1 的**当前快照**（数字、对手、定位）。如果你想理解 "为什么这个架构长成这样、每一项设计在解决什么瓶颈"，先看 Phase 2 §0.5 的架构演进史（Vanilla Transformer → GPT → LLaMA → Mixtral → DeepSeek → GLM-5.1），再回来看这里的具体参数会更顺。
+> 本节给的是 GLM-5.2 的**当前快照**（数字、对手、定位）。如果你想理解 "为什么这个架构长成这样、每一项设计在解决什么瓶颈"，先看 Phase 2 §0.5 的架构演进史（Vanilla Transformer → GPT → LLaMA → Mixtral → DeepSeek → GLM-5.x），再回来看这里的具体参数会更顺。
 
-GLM-5.1 是 Z.ai（原智谱 AI）在 2026-04-07 放出的 754B 开源权重模型，定位"agentic engineering"而非"vibe coding"。它的直接对手是 GPT-5.4 与 Claude Opus 4.6，在 SWE-Bench Pro 上以 58.4 登顶。它所对应的方法论论文是 GLM-5 团队在 2026-02-17 挂出的 `arXiv:2602.15763`（"GLM-5: from Vibe Coding to Agentic Engineering"），架构与训练细节大体沿用 `arXiv:2508.06471`（GLM-4.5 ARC 技术报告）。
+GLM-5.2 是 Z.ai（原智谱 AI）在 2026-06-13 放出的 744B 开源权重模型，定位"long-horizon agentic engineering"。它是 GLM-5.1（2026-04）的迭代，核心卖点是把原生上下文从 200K 提到 **1M token**（API 里以 `glm-5.2[1m]` 后缀激活，输出上限 131,072 token），并新增 high / max 两档推理 effort。它对应的方法论仍是 GLM-5 团队的 `arXiv:2602.15763`（"GLM-5: from Vibe Coding to Agentic Engineering"），架构与训练细节大体沿用 `arXiv:2508.06471`（GLM-4.5 ARC 技术报告），1M 上下文的稀疏注意力优化另见 `arXiv:2603.12201`（IndexCache）。
+
+> ⚠️ **关于榜单**：Z.ai 发布 5.2 时**未放出官方 benchmark**。以下为第三方/社区口径：SWE-Bench Pro 62.1（5.1 为 58.4）、Terminal-Bench 2.1 = 81.0、FrontierSWE #1 开源 / #3 总榜，并称以 ~1/6 成本胜过 GPT-5.5。这些数字官方未确认，引用时请标注来源。
 
 ### 1.1 架构参数
 
 | 维度 | 值 | 备注 |
 |---|---|---|
-| 总参数 | 754 B | HF `zai-org/GLM-5.1` |
-| 激活参数 / token | ~40 B | 8 routed + 1 shared |
-| 总层数 | 78 | 首 3 层 dense，其余 75 层是 sparse MoE |
-| Hidden dim | 6144 | |
-| Attention heads | 64 query heads / 64 KV heads | 不是 GQA，而是 MLA 式的 q_lora/kv_lora 压缩 |
-| q_lora_rank | 2048 | MLA 结构里查询压缩秩 |
-| kv_lora_rank | 512 | MLA 结构里键值压缩秩 |
-| qk_nope_dim | 192 | 不加 RoPE 的维度 |
-| qk_rope_dim | 64 | 加 RoPE 的维度 |
-| v_dim | 256 | |
-| 总专家数 | 257 | 256 routed + 1 shared |
-| 每 token 激活专家 | 8 routed + 1 shared = 9 | top-8 routing |
-| moe_intermediate_size | 2048 | 单个 routed expert 的 FFN 中间维 |
-| intermediate_size | 12288 | dense FFN 中间维 |
-| routed_scaling_factor | 2.5 | MoE 门控分数缩放 |
-| context | 200 K（原生） | 最大 128 K 输出 token |
-| 注意力 | **MoE-DSA** | 见下节 |
-| 精度 | BF16 / FP32 参数；FP8 推理可选 | |
+| 总参数 | 744 B | 多源一致口径；HF `zai-org/GLM-5.2` 卡片另标 753B，有出入 |
+| 激活参数 / token | ~40 B | 沿用 5.1 谱系 |
+| 总层数 | 78（沿用谱系，未单独披露） | 首 3 层 dense，其余 sparse MoE |
+| Hidden dim | 6144（沿用谱系） | |
+| Attention heads | 64 query / 64 KV（沿用谱系） | 不是 GQA，而是 MLA 式 q_lora/kv_lora 压缩 |
+| q_lora_rank | 2048（沿用谱系） | MLA 结构里查询压缩秩 |
+| kv_lora_rank | 512（沿用谱系） | MLA 结构里键值压缩秩 |
+| 总专家数 | 257（沿用谱系） | 256 routed + 1 shared |
+| 每 token 激活专家 | 8 routed + 1 shared = 9（沿用谱系） | top-8 routing |
+| context | **1 M（原生）** | `glm-5.2[1m]` 激活；输出上限 131,072 token |
+| 注意力 | **MoE-DSA + IndexShare** | 见下节 |
+| 推理 effort | **high / max 两档** | coding 推荐 max；Claude Code 里 low/medium/high→high，xhigh/max/ultracode→max |
+| 精度 | BF16 / FP32 参数；FP8 推理可选（`GLM-5.2-FP8`） | |
 | 许可 | MIT | 可商用、无 DAU 限制 |
 
-### 1.2 MoE-DSA 里的 "DSA" 到底是什么
+> 注：层数 / 专家数 / MLA 各 lora 维度（q_lora 2048、kv_lora 512、qk_nope 192、qk_rope 64、v_dim 256、moe_intermediate 2048 等）5.2 官方未单独披露，上表标"沿用谱系"的项沿用 5.1 已公开配置，落地前请以 HF config 为准。
 
-HF 卡片里 model tag 是 `glm_moe_dsa`。这里的 **DSA = DeepSeek Sparse Attention**（不是 "Dense-Sparse-Alternating"，有些博客写错）——即 DeepSeek 在 `V3.2-Exp`（2025-09）首次工程化部署的那套稀疏注意力。GLM-5 直接集成了这套机制。它由两个模块组成：
+### 1.2 MoE-DSA 里的 "DSA" 到底是什么 + 5.2 的 IndexShare
+
+HF 卡片里 model tag 是 `glm_moe_dsa`。这里的 **DSA = DeepSeek Sparse Attention**（不是 "Dense-Sparse-Alternating"，有些博客写错）——即 DeepSeek 在 `V3.2-Exp`（2025-09）首次工程化部署的那套稀疏注意力。GLM-5.x 直接集成了这套机制。它由两个模块组成：
 
 1. **Lightning Indexer**：一个极小的多头网络（可用 FP8），对 query token 与前文所有 token 计算 index score，决定要保留哪些 KV 位置。
 2. **Fine-grained Top-K Selector**：每个 query 只 attend 到 indexer 打分最高的 k 个 KV（DeepSeek-V3.2 的实现里 k = 2048）。
@@ -65,14 +64,17 @@ HF 卡片里 model tag 是 `glm_moe_dsa`。这里的 **DSA = DeepSeek Sparse Att
 - 长上下文 API 推理成本实测降到 ~50%；
 - 在 MLA 之上实例化，所以 KV cache 仍然被 latent 向量压缩，再叠加稀疏 → 长上下文真正"能用"。
 
-系统挑战（GPU 推理优化背景的读者需要关注）：top-k 选的 KV 位置是 token-dependent 的，导致 KV 工作集碎片化、易变、难以预取。这是 GLM-5.1 在 SGLang/vLLM 侧实现稀疏 attention kernel 时要解决的主要工程问题（参见 `vllm` blog 2025-09-29 与 SGLang Day-0 支持文档）。
+**GLM-5.2 的增量：IndexShare（论文：IndexCache，`arXiv:2603.12201`）。** 跨到 1M 后，每一层都跑一个 Lightning Indexer 本身成了开销。IndexShare 把层分成 "Full 层"（保留自己的 indexer）和 "Shared 层"（复用最近的 Full 层选出的 KV index）——每 4 层共享一个 indexer，砍掉约 **75% 的 indexer 计算**，质量损失可忽略。论文报告相对标准 DSA 实现 **prefill 加速 ~1.82×、decode ~1.48×**；官方口径是 1M 上下文下 per-token FLOPs 降低 ~2.9×。两种落地路径：training-free（在校准集上贪心搜哪些层设为 Shared）与 training-aware（多层蒸馏 loss）。
+
+系统挑战（GPU 推理优化背景的读者需要关注）：top-k 选的 KV 位置是 token-dependent 的，导致 KV 工作集碎片化、易变、难以预取。这是 GLM-5.2 在 SGLang/vLLM 侧实现稀疏 attention kernel 时要解决的主要工程问题（参见 `vllm` blog 2025-09-29 与 SGLang Day-0 支持文档）；IndexShare 进一步要求 kernel 区分 Full / Shared 层的 index 复用逻辑。
 
 ### 1.3 训练方法概述（来源：GLM-5 论文 + GLM-4.5 ARC）
 
-- **预训练**：沿用 GLM-4.5 的两段 23T 数据 + 7T 代码/推理上采样配方（详见 §2）。
-- **Mid-training**：把序列长度从 32K 推到 128K，喂 repo-level 代码、合成推理、agent 轨迹。
-- **Post-training**：用自研 **slime** 异步 RL 基础设施 + 新型 **asynchronous agent RL algorithms**（token-level importance sampling + TITO 管线）。
-- **Agentic 能力定义**：100+ 轮工具调用 / 连续 8 小时自主执行不掉链子，这是 GLM-5.1 相比 4.5 的最大差异。
+- **预训练**：沿用 GLM-4.5 谱系的两段配方，数据规模从 23T 扩到 **28.5T** tokens（详见 §2）。
+- **Mid-training**：长上下文扩展，序列长度推到百万级，喂 repo-level 代码、合成推理、agent 轨迹；IndexShare 在这一阶段以 training-aware 蒸馏落地。
+- **Post-training**：用自研 **slime** 异步 RL 基础设施 + **asynchronous agent RL algorithms**（token-level importance sampling + TITO 管线）。
+- **训练硬件**：据报道 GLM-5.2 全程使用华为昇腾（Ascend），未用 NVIDIA 芯片——此说法官方未正式确认、本笔记未独立核实。
+- **Agentic 能力定义**：100+ 轮工具调用 / 连续长时间自主执行不掉链子，5.2 在 long-horizon 任务上相比 5.1 的稳定性是主要卖点。
 
 ---
 
@@ -186,18 +188,18 @@ TAU-Bench 70.1、AIME-24 91.0、SWE-bench Verified 64.2。355 B 总参/32 B 激�
 
 ## 4. 模型对比表
 
-| 维度 | GLM-5.1 | DeepSeek-Coder-V2 | Qwen3-Coder | OpenCoder | StarCoder2 |
+| 维度 | GLM-5.2 | DeepSeek-Coder-V2 | Qwen3-Coder | OpenCoder | StarCoder2 |
 |---|---|---|---|---|---|
-| 发布时间 | 2026-04-07 | 2024-06 | 2025-07（480B）/ 2026-03（Coder-Next 80B） | 2024-11 | 2024-02 |
-| 架构 | MoE + MLA + DSA，78 L | MoE + MLA (DeepSeekMoE) | MoE (Qwen3)，62 L，96/8 GQA | Dense（Llama-like） | Dense + GQA + 滑窗 |
-| 总参数 | **754 B** | 236 B / 16 B（Lite） | 480 B / 80 B (Next) / 系列 | 1.5 B / 8 B | 3 B / 7 B / 15 B |
+| 发布时间 | 2026-06-13 | 2024-06 | 2025-07（480B）/ 2026-03（Coder-Next 80B） | 2024-11 | 2024-02 |
+| 架构 | MoE + MLA + DSA + IndexShare，78 L（沿用谱系） | MoE + MLA (DeepSeekMoE) | MoE (Qwen3)，62 L，96/8 GQA | Dense（Llama-like） | Dense + GQA + 滑窗 |
+| 总参数 | **744 B** | 236 B / 16 B（Lite） | 480 B / 80 B (Next) / 系列 | 1.5 B / 8 B | 3 B / 7 B / 15 B |
 | 激活参数 | 40 B | 21 B / 2.4 B | 35 B / 3 B | 全激活 | 全激活 |
-| 总专家 | 256 routed + 1 shared | DeepSeekMoE（160 routed + 2 shared） | 160 (8 激活) | N/A | N/A |
-| 预训练 tokens | 未公开（推测 ≥ 23 T，继承 4.5） | 10.2 T (V2 base 4.2T + 额外 6T) | 36 T (Qwen3 base) + 7.5 T 代码 mid-train | 2.5 T | 3.3-4.3 T |
+| 总专家 | 256 routed + 1 shared（沿用谱系） | DeepSeekMoE（160 routed + 2 shared） | 160 (8 激活) | N/A | N/A |
+| 预训练 tokens | ~28.5 T | 10.2 T (V2 base 4.2T + 额外 6T) | 36 T (Qwen3 base) + 7.5 T 代码 mid-train | 2.5 T | 3.3-4.3 T |
 | 代码占比 | 未公开 | 60% | 70% | 90% | ~100% |
 | 后训练 | Expert specialization → self-distill → async agent RL (slime) | SFT 300M + GRPO (compiler/test reward) | SFT + Agent RL（20K 并发 env）+ 长程 RL | SFT (4.5 M + 375 K) | 仅 base（Instruct 另放） |
-| 长上下文 | 200 K 原生 | 128 K（YaRN） | 262 K 原生（480B） | 8 K | 16 K（滑窗 4 K） |
-| 注意力 | MLA + DSA 稀疏 | MLA | GQA | MHA/GQA | GQA + 滑窗 |
+| 长上下文 | **1 M 原生** | 128 K（YaRN） | 262 K 原生（480B） | 8 K | 16 K（滑窗 4 K） |
+| 注意力 | MLA + DSA 稀疏 + IndexShare | MLA | GQA | MHA/GQA | GQA + 滑窗 |
 | 许可 | **MIT** | DeepSeek License（商用需申请，较宽松） | Apache 2.0 | Apache 2.0 + 数据全开 | BigCode OpenRAIL-M |
 | 数据开源程度 | 否 | 否 | 否 | **全开**（含 pipeline） | **全开**（The Stack v2） |
 | 代表 bench | SWE-Bench Pro 58.4 | HumanEval 90.2, MBPP 76.2 | SWE-Bench Verified 69.6 | HumanEval 66.5 (8B) | HumanEval 46 (15B) |
@@ -243,7 +245,7 @@ TAU-Bench 70.1、AIME-24 91.0、SWE-bench Verified 64.2。355 B 总参/32 B 激�
 
 **Phase 3（差异化产品）**：选一条：
 - **A. 继续自训 7 B**：需要 $500 万+ 以及 1-2 个月 512 卡 H100，收益不一定打得过直接微调 Qwen3 或 GLM-4.5-Air；
-- **B. 基于 GLM-5.1 做 LoRA / QLoRA / continued pretraining**：投入 1-5 万美元，在垂直领域（某一行业代码、某一 DSL、某一内部框架）做强；这是 GPU 推理优化背景的读者最容易变现的路径。
+- **B. 基于 GLM-5.2 做 LoRA / QLoRA / continued pretraining**：投入 1-5 万美元，在垂直领域（某一行业代码、某一 DSL、某一内部框架）做强；这是 GPU 推理优化背景的读者最容易变现的路径。
 - **C. 做 MoE 30 B A3 B**：如果有 512+ H100 两个月 + 丰富工程能力，性价比反而好于 7 B dense。
 
 **为什么从 1.5 B 起步而不是 0.3 B 或 7 B**：
@@ -257,9 +259,9 @@ TAU-Bench 70.1、AIME-24 91.0、SWE-bench Verified 64.2。355 B 总参/32 B 激�
 
 以下是公开资料（论文 / blog / 模型卡）里**没讲清楚**、但决定 SOTA 能否复现的点。做 Phase 0 前要明确这些是"未解风险"，不能假装知道。
 
-1. **GLM-5.1 / GLM-5 还没有对应的 arXiv 技术报告**。`2602.15763` 是方法论纲要，但关于 754 B 具体的预训练 token 量、数据配比、mid-training token 量、post-training 数据规模，**均未公开**。GLM-4.5 ARC 论文是最接近的参考。
+1. **GLM-5.2 / GLM-5 还没有完整的 arXiv 模型技术报告**。`2602.15763` 是方法论纲要、`2603.12201`（IndexCache）只覆盖稀疏注意力优化，但 744 B 具体的预训练 token 配比、mid-training token 量、post-training 数据规模、1M 上下文扩展配方，**均未公开**。GLM-4.5 ARC 论文是最接近的参考。
 2. **GLM-4.5 的 mid-training 具体 token 量未公开**。只知道"progressive 扩到 128 K"和"repo-level + 合成推理 + agent 轨迹"三类，但 repo-level 代码用了多少、合成推理用了多少，论文没给。
-3. **DSA 的 Lightning Indexer 训练细节**。DeepSeek-V3.2 把 indexer 当小网络和主干联合训练，但 loss 设计、怎么保证 top-k 可导、indexer 初始化是否用了 distill，细节都只在 DeepSeek-V3.2 paper（`2512.02556`）里部分披露，GLM-5.1 如何在主干上接入 DSA（从 head 零训 vs. 从已有 checkpoint 加装）**没有公开**。
+3. **DSA 的 Lightning Indexer 训练细节**。DeepSeek-V3.2 把 indexer 当小网络和主干联合训练，但 loss 设计、怎么保证 top-k 可导、indexer 初始化是否用了 distill，细节都只在 DeepSeek-V3.2 paper（`2512.02556`）里部分披露，GLM-5.2 如何在主干上接入 DSA（从 head 零训 vs. 从已有 checkpoint 加装）、IndexShare 的 Full/Shared 层划分如何与训练联合 **没有公开**。
 4. **agent RL 的 reward 设计**。GLM-5 宣称"100+ 轮不掉链子"、Qwen3-Coder 起 20 K 并发环境，但**稀疏/过程奖励如何分配、防 reward hacking 的具体手段、训练数据采样策略**全是黑盒。
 5. **数据版权与合规**。所有大厂都模糊处理 GitHub 代码的许可过滤。OpenCoder 是唯一全公开数据的，也只放了 permissive 子集。自训要么接受只用 permissive（产品天花板偏低），要么自担法律风险。
 6. **Muon 优化器的 MoE 稳定性**。GLM-4.5 报告 Muon 对 355 B MoE 工作得很好，但超参（lr schedule、weight decay、梯度裁剪）未完整公开。Muon 在社区的 MoE 大规模实验数据不多。
@@ -274,7 +276,8 @@ TAU-Bench 70.1、AIME-24 91.0、SWE-bench Verified 64.2。355 B 总参/32 B 激�
 
 - GLM-4.5 ARC 技术报告 (`arXiv:2508.06471`)
 - GLM-5 方法论 (`arXiv:2602.15763`)
-- GLM-5.1 HF 模型卡 (`zai-org/GLM-5.1`) 与 Z.ai blog (`z.ai/blog/glm-5.1`)
+- IndexCache / IndexShare (`arXiv:2603.12201`)，5.2 的跨层稀疏注意力 index 复用
+- GLM-5.2 HF 模型卡 (`zai-org/GLM-5.2`、`zai-org/GLM-5.2-FP8`) 与 Z.ai blog (`z.ai/blog/glm-5.2`)
 - DeepSeek-Coder-V2 (`arXiv:2406.11931`)
 - DeepSeek-V3.2-Exp (`arXiv:2512.02556`)，DSA 的权威来源
 - Qwen3 技术报告 (`arXiv:2505.09388`)；Qwen3-Coder blog (`qwenlm.github.io/blog/qwen3-coder`)；Qwen3-Coder-Next (`arXiv:2603.00729`)
@@ -282,46 +285,46 @@ TAU-Bench 70.1、AIME-24 91.0、SWE-bench Verified 64.2。355 B 总参/32 B 激�
 - StarCoder2 & The Stack v2 (`arXiv:2402.19173`)
 - vLLM blog "DeepSeek-V3.2-Exp in vLLM" (2025-09-29)；SGLang Day-0 blog (2025-09-29)
 
-*注*：因 WebFetch 在本次环境被拒，arxiv 原文未直接拉取，上文细节综合自 WebSearch 聚合结果（MarkTechPost、Analytics Vidhya、emergentmind、HF papers、官方 blog 等）。个别数值（如 GLM-5.1 层数/专家数）跨源已交叉验证，仍建议在拿到 arxiv PDF 后校对一次。
+*注*：5.2 章节细节综合自官方 HF 卡片、Z.ai blog 与多家报道（VentureBeat、MarkTechPost、buildfastwithai、DataCamp 等）跨源交叉核对。GLM-5.2 发布时**官方未放 benchmark**，文中 SWE-Bench Pro 62.1、Terminal-Bench 2.1 = 81.0 等为第三方/社区口径；744B vs HF 卡片 753B 的参数出入、"全程华为昇腾"硬件主张均未独立核实，建议拿到 arxiv PDF / 官方技术报告后再校对一次。
 
 ---
 
 ## 📌 章末检查
 
 **带走这 5 条**
-- GLM-5.1 = 754B 总参 / 40B 激活 / 78 层（首 3 dense + 75 MoE）/ 256+1 expert / MLA q_lora 2048 · kv_lora 512 / 200K 原生上下文 / MIT。
-- DSA = **DeepSeek Sparse Attention**（Lightning Indexer + top-k KV），不是 Dense-Sparse-Alternating；把注意力从 O(L²) 降到 O(L·k)。
-- 训练栈沿用 GLM-4.5 ARC：23T 双段 pretrain + 7T 代码/推理上采样 + mid-train 128K + slime 异步 RL。
+- GLM-5.2 = 744B 总参 / 40B 激活 / `glm_moe_dsa` / **1M 原生上下文**（`glm-5.2[1m]`，输出 131,072）/ MIT，2026-06-13；结构沿用 5.1 谱系（78 层 / 256+1 expert / MLA），官方未单独披露。
+- DSA = **DeepSeek Sparse Attention**（Lightning Indexer + top-k KV），不是 Dense-Sparse-Alternating；把注意力从 O(L²) 降到 O(L·k)。5.2 加 **IndexShare**（IndexCache，arXiv:2603.12201）每 4 层共享 indexer，砍 75% indexer 计算。
+- 训练栈沿用 GLM-4.5 ARC：双段 pretrain（23T→28.5T）+ 代码/推理上采样 + mid-train 长上下文 + slime 异步 RL。
 - 优化器从 AdamW 换成 **Muon** 是 2025 下半年 MoE 大模型的新换法。
-- 评测重心从 HumanEval/MBPP 转向 SWE-Bench Pro / LiveCodeBench / 内部私有 benchmark。
+- 评测重心从 HumanEval/MBPP 转向 SWE-Bench Pro / Terminal-Bench / 内部私有 benchmark（5.2 官方未放榜）。
 
 **自检 3 题**（< 5 分钟）
-1. 为什么 MoE 总参 754B 而激活只有 40B？算式怎么对得上？
-2. DSA 把 attention 从 O(L²) 降到 O(L·k) 的前提是什么？为什么 Lightning Indexer 本身不会成为新瓶颈？
-3. GLM-5.1 在 SWE-Bench Pro 拿 58.4，相对 GLM-4.5 的提升最可能来自哪两块？
+1. 为什么 MoE 总参 744B 而激活只有 40B？算式怎么对得上？
+2. DSA 把 attention 从 O(L²) 降到 O(L·k) 的前提是什么？5.2 的 IndexShare 又在 DSA 基础上省了哪一块开销？
+3. 5.2 把上下文从 5.1 的 200K 提到 1M，单靠"加大 RoPE base"够不够？还需要解决哪些系统/注意力侧问题？
 
 <details><summary>参考答案</summary>
 
-1. 每 token top-k=8 个 expert + 1 个 shared expert；256 routed 中只激活 8，∴ ≈ 754B × (9/257) + 共享/embedding ≈ 40B 激活参数。
-2. Lightning Indexer 是一个浅层 + 小 head_dim 的 scoring 网络，FLOPs 远小于 dense attention；只要 k ≪ L，O(L·k) + O(L · indexer) 总开销仍远低于 O(L²)。
-3. (a) MoE-DSA 让 200K 上下文实际可用，长仓库 issue 不再被截断；(b) agentic post-training（slime 异步 RL + SWE-style 轨迹）直接对齐"修真 bug"分布。
+1. 每 token top-k=8 个 expert + 1 个 shared expert；256 routed 中只激活 8，∴ ≈ 744B × (9/257) + 共享/embedding ≈ 40B 激活参数。
+2. 前提是 k ≪ L 且 Lightning Indexer 的打分开销远小于 dense attention；IndexShare 进一步发现"每层都跑 indexer"在 1M 下本身成了开销，于是每 4 层共享一份 index、省掉约 75% 的 indexer 计算。
+3. 不够。长度外推只是第一步；还要 (a) 稀疏注意力（DSA）把 O(L²) 降到 O(L·k) 否则 1M 算不动；(b) IndexShare 压低 indexer 开销；(c) 推理侧 KV cache、token-dependent 稀疏位置的 kernel 与预取，才让 1M 真"能用"。
 </details>
 
-> ⚠️ **常见坑** · 直接把 MoE 论文里"top-2 即可"的结论搬到 256-expert 大模型上，往往触发路由 collapse（少数 expert 满载、大量 expert 闲置）。GLM-5.1 用 top-8 + **aux-loss-free** 平衡是有原因的——监控 `expert_load_var` 比看 loss 还重要。
+> ⚠️ **常见坑** · 直接把 MoE 论文里"top-2 即可"的结论搬到 256-expert 大模型上，往往触发路由 collapse（少数 expert 满载、大量 expert 闲置）。GLM-5.2 沿用 5.1 谱系的 top-8 + **aux-loss-free** 平衡是有原因的——监控 `expert_load_var` 比看 loss 还重要。
 
-**下一步** → 进入 [phase1 数据 pipeline](./phase1_data_pipeline.md) 看怎么把 23T token 喂进 754B MoE。术语速查 → [▣ 索引](./phase_glossary.md)。
+**下一步** → 进入 [phase1 数据 pipeline](./phase1_data_pipeline.md) 看怎么把 28.5T token 喂进 744B MoE。术语速查 → [▣ 索引](./phase_glossary.md)。
 
 ---
 
 ## 动手练习
 
-1. 在 HuggingFace 上打开 `zai-org/GLM-5.1` 与 `deepseek-ai/DeepSeek-V3`，把两份 `config.json` 的字段做并列对比，找出 ≥ 5 处实质差异（不是命名）并指明每一处的设计动机。
-   *提示*：重点看 q_lora_rank / kv_lora_rank / num_experts / moe_intermediate_size / topk_method。
-2. 凭 §1 速览表，**手写一段 200 字的"模型卡口播稿"**：让一位听完 30 秒就能复述"GLM-5.1 凭什么在 SWE-Bench Pro 拿 58.4"。
-   *提示*：抓住 MoE-DSA + agentic post-training 两个差异点。
+1. 在 HuggingFace 上打开 `zai-org/GLM-5.2` 与 `deepseek-ai/DeepSeek-V3`，把两份 `config.json` 的字段做并列对比，找出 ≥ 5 处实质差异（不是命名）并指明每一处的设计动机。
+   *提示*：重点看 q_lora_rank / kv_lora_rank / num_experts / moe_intermediate_size / topk_method；再对比 `zai-org/GLM-5.1` 看 5.1→5.2 改了哪些字段。
+2. 凭 §1 速览表，**手写一段 200 字的"模型卡口播稿"**：让一位听完 30 秒就能复述"GLM-5.2 相比 5.1 的核心升级是什么"。
+   *提示*：抓住 1M 上下文 + IndexShare + high/max 双档三个差异点。
 3. 用 §3 的步骤清单，对你自己最熟悉的一个开源 base model（如 OpenCoder-1.5B）做一次"反查表"——它的每一个步骤是否都做了、做到了什么程度、缺哪一步。
    *提示*：OpenCoder 把数据/SFT/RL 全开源，最适合做对照。
-4. 对 §6 黑盒清单的 10 条，每条写一段 100 字的"侦探推断"——基于公开线索（其他公司的论文、社区复现、模型行为），你猜 GLM-5.1 在这一项上具体做了什么？
+4. 对 §6 黑盒清单的 10 条，每条写一段 100 字的"侦探推断"——基于公开线索（其他公司的论文、社区复现、模型行为），你猜 GLM-5.2 在这一项上具体做了什么？
    *提示*：把 DeepSeek-V3.2 / Qwen3 / Llama-3.1 当作旁证。
 5. 完成 §5 的"自己训一个"现实目标设定：基于你能拿到的真实预算（GPU 类型 + 卡时数），写一份 1 页投资回报分析——你打算训多少参数、多少 token、对标哪条基线、达到分数多少算成功、失败时的 rollback 是什么。
    *提示*：交叉看 ROADMAP 的"建议推进节奏"+ phase2 §0 的最小可行 MoE 实验配置。

@@ -14,7 +14,7 @@
 ## 0. 实验设计与边界
 
 ### 0.1 目标
-- **业务目标**：把一个公开 base 模型微调成"会写公司风格 Python 代码"的 coding assistant，可在内部 IDE 插件里替代 GLM-5.1 API（成本下降 70%、私有代码不外发）。
+- **业务目标**：把一个公开 base 模型微调成"会写公司风格 Python 代码"的 coding assistant，可在内部 IDE 插件里替代 GLM-5.2 API（成本下降 70%、私有代码不外发）。
 - **技术目标**：跑通 phase0 → phase8 全 pipeline 一遍，每一步都有可量化的 deliverable，跑完能在面试 / 内部技术分享上**逐 step 复述**。
 - **非目标**：不追 SOTA、不打 SWE-Bench 公开榜、不重训 base（资源不够）。
 
@@ -36,8 +36,8 @@
 - ✅ 全 19 个 step **全部 done**，每个有 `tracker.json` 记录的实际耗时与备注
 - ❌ 任何一项不达，**写一份失败复盘比拿 PR 还重要**——这是研究意义所在
 
-### 0.4 为什么是 GLM-4.5-Air-Base 而不是 GLM-5.1
-- GLM-5.1 是 754B MoE，单机 8×H100 跑不动训练（只能推理）；Air-Base 是 106B/12B 激活的 MoE-DSA 变体，**全参 LoRA 可塞进 8×H100**。
+### 0.4 为什么是 GLM-4.5-Air-Base 而不是 GLM-5.2
+- GLM-5.2 是 744B MoE，单机 8×H100 跑不动训练（只能推理）；Air-Base 是 106B/12B 激活的 MoE-DSA 变体，**全参 LoRA 可塞进 8×H100**。
 - Air-Base 同源 GLM-4.5 ARC，post-training 配方可直接借鉴。
 - 替代候选：Qwen3-Coder-30B-A3B-Base（更小但非 GLM 系）、DeepSeek-Coder-V2-Lite-Base（16B MoE 但 Coder-V2 没有 DSA）。
 
@@ -105,20 +105,20 @@ python tools/track.py block capstone-05-rl --reason "等 reward sandbox 镜像"
 **状态字段**：`capstone-01-baseline`
 
 **输入**：无（项目起点）
-**输出**：一份 `baseline_report.md`，包含 GLM-5.1 API / GLM-4.5-Air-Base / Qwen3-Coder-30B-A3B-Base 三家在 HumanEval+ / 内部 5 题手测上的分数
+**输出**：一份 `baseline_report.md`，包含 GLM-5.2 API / GLM-4.5-Air-Base / Qwen3-Coder-30B-A3B-Base 三家在 HumanEval+ / 内部 5 题手测上的分数
 
 | 字段 | 值 |
 |---|---|
 | 卡 | 0（API 调用 / 单卡本地 inference） |
 | 数据 | HumanEval+（`evalplus`）· 内部 5 题手测题面 |
-| 模型 | GLM-5.1 API / 本地 Air-Base / Qwen3-Coder（vLLM 启起来） |
+| 模型 | GLM-5.2 API / 本地 Air-Base / Qwen3-Coder（vLLM 启起来） |
 | 超参 | `temperature=0.2, top_p=0.95, n=20`（pass@10 需要 ≥ 20 采样） |
 | 命令 | `evalplus.evaluate --dataset humaneval --model glm-5.1 --backend openai` |
 | 预算 | 4 工时 + $0（已有 API 额度）；如本地推理另 + 2 H100-hour ≈ $4 |
-| 验收 | 三家分数都跑出 + 找出 1 个 base 答错但 GLM-5.1 答对的 case |
+| 验收 | 三家分数都跑出 + 找出 1 个 base 答错但 GLM-5.2 答对的 case |
 
 **思考 3 问**
-1. GLM-5.1 比 Air-Base 在 HumanEval+ 上高 8pp，最可能的来源是哪两块？（提示：phase0 + phase5）
+1. GLM-5.2 比 Air-Base 在 HumanEval+ 上高 8pp，最可能的来源是哪两块？（提示：phase0 + phase5）
 2. Qwen3-Coder-30B-A3B 是 30B 总参 / 3B 激活，FLOPs ≈ Air-Base 的 1/4，但分数只差 3pp——为什么？这说明 coding 任务的瓶颈在算力还是数据？
 3. 如果你公司当前 API 月费 < $2K，本项目的 ROI 该怎么算？需要做到什么分数 + 多少 QPS 才回本？
 
@@ -243,7 +243,7 @@ python tools/track.py block capstone-05-rl --reason "等 reward sandbox 镜像"
 
 **思考 3 问**
 1. WSD 的 stable 段你设了 3B token，但实测 loss 还在下降——你会延长 stable 还是按计划进入 decay？背后的 trade-off 是什么？
-2. 5B token 是个小数（base 训了 23T）——这个量级真能"挪动"权重吗？怎么验证不是"过拟合到这 5B 的偏置"？
+2. 5B token 是个小数（base 训了 28.5T）——这个量级真能"挪动"权重吗？怎么验证不是"过拟合到这 5B 的偏置"？
 3. 跑到 80% 时发现某张卡掉了——重启从 ckpt 续训和重新开始的 cost / 风险对比？
 
 > ⚠️ **常见坑** · 用 base 的 RoPE base（10000）做 5B mid-training，但训练 seq_len=8192 远短于 base 原生 32K——结果模型反而"忘了" base 的长上下文能力。**保持 base 的 RoPE 配置不变**，或预先按 step 07 扩长再训。
@@ -286,7 +286,7 @@ python tools/track.py block capstone-05-rl --reason "等 reward sandbox 镜像"
 |---|---|
 | 卡 | 1 × H100（调 GLM-4.5-Air 合成 instruction）或 API |
 | 数据 | The Stack Python 200 段 seed → OSS-Instruct 30k 条 / `examples/phase4/extract_pr_sft.py` 抽 5k PR / step 10 agent 轨迹 1k |
-| 模型 | 合成用 GLM-4.5-Air-Instruct（不是 base）或 GLM-5.1 API |
+| 模型 | 合成用 GLM-4.5-Air-Instruct（不是 base）或 GLM-5.2 API |
 | 命令 | `python tools/oss_instruct_gen.py --seeds 200 --output sft.jsonl --target 30000` |
 | 超参 | temperature=1.0 多样性 · 每条 seed 生成 N=150 个 instruction → quality filter 留 1 个 |
 | 预算 | 8 工时 + 合成 API 调用 ≈ $50 |
@@ -294,7 +294,7 @@ python tools/track.py block capstone-05-rl --reason "等 reward sandbox 镜像"
 
 **思考 3 问**
 1. OSS-Instruct 30k vs 私有 PR 5k 的混比 6:1——如果你想模型"更像公司风格"，怎么调？为什么不直接 1:1？
-2. 合成时用 base 的 instruct 版（Air-Instruct）vs 用更强的 GLM-5.1 API，质量差多少？成本差多少？
+2. 合成时用 base 的 instruct 版（Air-Instruct）vs 用更强的 GLM-5.2 API，质量差多少？成本差多少？
 3. 用 Air-Instruct 合成训 Air-Base，会不会有"自我蒸馏"的 risk？怎么避免？
 
 ---
@@ -337,7 +337,7 @@ python tools/track.py block capstone-05-rl --reason "等 reward sandbox 镜像"
 |---|---|
 | 卡 | 1 × H100 80GB（跑 ReAct loop 的 inference） |
 | 数据 | 30 题 × 30-40 次尝试 = 1000+ 条轨迹（保留 ≥ 30 条 final 通过的） |
-| 模型 | 收集器：GLM-5.1 API 或本地 Air-Instruct |
+| 模型 | 收集器：GLM-5.2 API 或本地 Air-Instruct |
 | 工具 | `examples/phase8/mini_agent.py` 改造成轨迹采集器 |
 | 命令 | `python tools/agent_collector.py --tasks 30 --attempts 35 --out agent_traj.jsonl` |
 | 预算 | 16 工时 + 10 GPU-hour（如果用本地 inference）≈ $80 |
@@ -345,7 +345,7 @@ python tools/track.py block capstone-05-rl --reason "等 reward sandbox 镜像"
 
 **思考 3 问**
 1. 30 题 × 35 尝试 → 1050 条轨迹，只留 30 条 final pass——剩下 1020 条 fail 轨迹完全丢吗？（提示：失败轨迹也能给信号）
-2. 用 GLM-5.1 当老师会被 distill 警察盯上吗？许可证条款怎么写的？
+2. 用 GLM-5.2 当老师会被 distill 警察盯上吗？许可证条款怎么写的？
 3. 轨迹长度 6-12 turn 是经验值——更长（30 turn+）的"难题轨迹"对 phase 5 RL 价值是高还是低？
 
 ---
@@ -587,7 +587,7 @@ python tools/track.py block capstone-05-rl --reason "等 reward sandbox 镜像"
       "owner": "sq",
       "gpu": "0 (API only)",
       "data": "HumanEval+ · 内部 5 题",
-      "model": "GLM-5.1 API / Air-Base / Qwen3-Coder-30B-A3B",
+      "model": "GLM-5.2 API / Air-Base / Qwen3-Coder-30B-A3B",
       "hparams": {"temperature": 0.2, "n": 20},
       "eta_hours": 4,
       "eta_cost_usd": 0,

@@ -12,7 +12,7 @@
       "owner": "sq",
       "gpu": "0 (API only)",
       "data": "HumanEval+ · 内部 5 题手测",
-      "model": "GLM-5.1 API / GLM-4.5-Air-Base / Qwen3-Coder-30B-A3B-Base",
+      "model": "GLM-5.2 API / GLM-4.5-Air-Base / Qwen3-Coder-30B-A3B-Base",
       "hparams": {
         "temperature": 0.2,
         "top_p": 0.95,
@@ -178,7 +178,7 @@
       "owner": "sq",
       "gpu": "1 × H100 (合成 inference)",
       "data": "The Stack Python 200 段 seed + 内部 PR + step 10 agent 轨迹",
-      "model": "合成器: GLM-4.5-Air-Instruct 或 GLM-5.1 API",
+      "model": "合成器: GLM-4.5-Air-Instruct 或 GLM-5.2 API",
       "hparams": {
         "oss_instruct_n": 150,
         "temperature": 1.0,
@@ -234,7 +234,7 @@
       "owner": "sq",
       "gpu": "1 × H100 (ReAct inference)",
       "data": "step 02 的 10 题 + 公开 repo 20 题",
-      "model": "采集器: GLM-5.1 API 或本地 Air-Instruct",
+      "model": "采集器: GLM-5.2 API 或本地 Air-Instruct",
       "hparams": {
         "tasks": 30,
         "attempts_per_task": 35,

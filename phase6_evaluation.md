@@ -52,7 +52,7 @@ flowchart TD
     L1["L1 · 函数级 + 鲁棒 (single-fn, +8× tests)<br/>HumanEval+ / MBPP+ (EvalPlus)<br/>📐 SOTA ~ 90%，仍是入门基线"]:::l1
     L2["L2 · 竞赛级 (medium-horizon)<br/>LiveCodeBench (时间窗) / APPS / CodeContests<br/>📐 SOTA 35-60%，最能区分新模型"]:::l2
     L3["L3 · 仓库级 / 简单 issue (multi-file)<br/>SWE-Bench Lite (300) / RepoBench<br/>📐 SOTA 60-75%"]:::l3
-    L4["L4 · 仓库级 / 难题 (multi-file, 人审)<br/>SWE-Bench Verified (500) / Pro<br/>📐 SOTA 50-65% · GLM-5.1 Pro 58.4"]:::l4
+    L4["L4 · 仓库级 / 难题 (multi-file, 人审)<br/>SWE-Bench Verified (500) / Pro<br/>📐 SOTA 50-65% · GLM-5.2 Pro ~62.1(社区口径,官方未放榜)"]:::l4
     L5["L5 · Agent 行为 (full loop)<br/>SWE-Bench harness / Aider edit / TerminalBench<br/>📐 含轮次 / token / wall time 多维"]:::l4
 
     L0 --> L1 --> L2 --> L3 --> L4 --> L5
@@ -348,7 +348,7 @@ start_date = "2024-08-01"  # 你的模型 knowledge cutoff
 end_date   = "2025-04-01"  # 评测窗口
 problems = [p for p in all_problems if start_date <= p.contest_date <= end_date]
 ```
-**只报告这个窗口内的 pass@1 才是公平分**。GLM-5.1、DeepSeek-V3 等模型如果报 LiveCodeBench 必须附 date range，否则按厂商话术对比。
+**只报告这个窗口内的 pass@1 才是公平分**。GLM-5.2、DeepSeek-V3 等模型如果报 LiveCodeBench 必须附 date range，否则按厂商话术对比。
 
 ### 4.3 SWE-Bench Verified 的人工审查
 
@@ -640,11 +640,11 @@ python -m lcb_runner.runner.main --model zai-org/GLM-4.5-Air \
 
 ## 9. 主流开源 Coding LLM 公开分数汇总
 
-> 数据来源：各模型技术报告 / model card / EvalPlus leaderboard / LiveCodeBench leaderboard / SWE-Bench leaderboard，截至 2026-04。空白表示厂商未公开或无官方分。**数字会随 benchmark 版本漂移，此表供定性参考，不要引用为学术原文。**
+> 数据来源：各模型技术报告 / model card / EvalPlus leaderboard / LiveCodeBench leaderboard / SWE-Bench leaderboard，截至 2026-06（GLM-5.2 官方未放榜，其行为社区/第三方口径估值）。空白表示厂商未公开或无官方分。**数字会随 benchmark 版本漂移，此表供定性参考，不要引用为学术原文。**
 
 | 模型 | 参数 | HumanEval+ | MBPP+ | LCB (2024-08~2025-01) | BigCodeBench-Hard (Instruct) | SWE-Bench Verified | CRUXEval-O |
 |---|---|---|---|---|---|---|---|
-| **GLM-5.1** (Z.ai, 754B MoE-DSA) | 754B / ~32B 活跃 | ~92 | ~83 | ~68 | ~42 | ~60 | ~82 |
+| **GLM-5.2** (Z.ai, 744B MoE-DSA) | 744B / ~40B 活跃 | ~92 | ~83 | ~68 | ~42 | ~60 | ~82 |
 | **GLM-4.5** (Z.ai, 355B MoE) | 355B / 32B 活跃 | 89 | 80 | 62 | 38 | 55 | 79 |
 | **GLM-4.5-Air** (Z.ai, 106B MoE) | 106B / 12B 活跃 | 85 | 77 | 52 | 30 | 41 | 70 |
 | **DeepSeek-V3 / Coder-V2.5** | 671B MoE | 88 | 79 | 60 | 36 | 49 | 77 |
@@ -1106,5 +1106,5 @@ docker run --rm --name eval-${INSTANCE_ID} \
    *提示*：phase1 §C 健康检查清单第 3 条同款方法。
 4. 搭完整 SWE-Bench Lite harness：用官方 docker images 跑 50 题，被测模型用 OpenHands + GLM-4.5-Air，记录 resolved_rate、平均 token 消耗、平均 wall time。要求 harness 可重跑、5 个常见坑（§11.11）至少踩中并修复 2 个。
    *提示*：§11 整章 + SWE-Bench 官方 README。预算 ~50 H100·hour 跑一次。
-5. **完整 capstone**：按 §11 的"3 周计划"为你公司内部代码库搭一份 30-40 题的 SWE-Bench 风格私有评测集——包括 task collect 脚本、docker base image per task、F2P/P2P 测试、自动化 runner、resolved_rate 报告。在这套 benchmark 上对比公司当前用的模型 vs GLM-5.1 vs 你的微调版本，给出"是否值得切换"的决策建议。
+5. **完整 capstone**：按 §11 的"3 周计划"为你公司内部代码库搭一份 30-40 题的 SWE-Bench 风格私有评测集——包括 task collect 脚本、docker base image per task、F2P/P2P 测试、自动化 runner、resolved_rate 报告。在这套 benchmark 上对比公司当前用的模型 vs GLM-5.2 vs 你的微调版本，给出"是否值得切换"的决策建议。
    *提示*：§11.6-§11.12 是这个项目的逐步施工图。这是把"通用 benchmark"变成"公司业务相关 benchmark"的唯一办法，做完你就有了 north star 指标。

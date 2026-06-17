@@ -11,17 +11,17 @@
 ### 一、架构类（11 条）
 
 #### MoE · Mixture of Experts
-**定义**：每 token 只激活一小部分专家网络，参数量大但 FLOPs 小。GLM-5.1 用 256 routed + 1 shared，top-8 激活。
+**定义**：每 token 只激活一小部分专家网络，参数量大但 FLOPs 小。GLM-5.2 用 256 routed + 1 shared，top-8 激活。
 **详见**：`phase2 §0.5.4` `phase2 §1.2`
 **相关**：Shared Expert / EP / aux-loss-free
 
 #### DSA · DeepSeek Sparse Attention
-**定义**：用 Lightning Indexer 给每个 query 动态挑 top-k KV，把 attention 从 O(L²) 降到 O(L·k)。GLM-5.1 从 DeepSeek-V3.2 集成。
+**定义**：用 Lightning Indexer 给每个 query 动态挑 top-k KV，把 attention 从 O(L²) 降到 O(L·k)。GLM-5.2 从 DeepSeek-V3.2 集成。
 **详见**：`phase0 §1.2` `phase2 §1.4`
 **相关**：MLA / Lightning Indexer
 
 #### MLA · Multi-head Latent Attention
-**定义**：把 K/V 先压缩到低维 latent (rank≈512)，用时再投回，KV cache 缩约 10×。DeepSeek-V2 起、GLM-5.1 沿用。
+**定义**：把 K/V 先压缩到低维 latent (rank≈512)，用时再投回，KV cache 缩约 10×。DeepSeek-V2 起、GLM-5.2 沿用。
 **详见**：`phase_basics §11` `phase2 §1.5`
 **相关**：DSA / GQA / KV Cache
 
@@ -41,7 +41,7 @@
 **相关**：LongRoPE / NTK-aware / Position Interpolation
 
 #### LongRoPE
-**定义**：用进化搜索给 RoPE 每个维度找非均匀缩放因子，扩到 200K+ 仍能保留短上下文性能。Phi-3-mini-128K / GLM-5.1 推测使用。
+**定义**：用进化搜索给 RoPE 每个维度找非均匀缩放因子，扩到 200K+ 仍能保留短上下文性能。Phi-3-mini-128K / GLM-5.2 推测使用。
 **详见**：`phase3 §4.6`
 **相关**：YaRN / RoPE
 
@@ -56,7 +56,7 @@
 **相关**：RMSNorm / FFN
 
 #### MTP · Multi-Token Prediction
-**定义**：训练时让模型一次预测多个未来 token（DeepSeek-V3 / GLM-5.1 自带）。训练信号更密；推理时可直接做投机采样。
+**定义**：训练时让模型一次预测多个未来 token（DeepSeek-V3 / GLM-5.2 自带）。训练信号更密；推理时可直接做投机采样。
 **详见**：`phase2 §3.3` `phase7 §MTP`
 **相关**：Speculative Decoding / FIM
 
@@ -149,7 +149,7 @@
 **相关**：vLLM APC / Prefix Cache / SGLang
 
 #### Speculative Decoding
-**定义**：用一个小模型/MTP head 一次猜多个 token，主模型并行验证。Memory-bound 场景关键加速器，GLM-5.1 自带 MTP head。
+**定义**：用一个小模型/MTP head 一次猜多个 token，主模型并行验证。Memory-bound 场景关键加速器，GLM-5.2 自带 MTP head。
 **详见**：`phase7 §MTP` `phase_basics §16.2`
 **相关**：MTP / EAGLE / Medusa
 
@@ -179,7 +179,7 @@
 **相关**：DP / TP
 
 #### vLLM / SGLang
-**定义**：两大开源推理引擎——vLLM 主打 PagedAttention + 通用稳定，SGLang 主打 RadixAttention + 多轮 agent 吞吐。GLM-5.1 双方都 day-0 支持。
+**定义**：两大开源推理引擎——vLLM 主打 PagedAttention + 通用稳定，SGLang 主打 RadixAttention + 多轮 agent 吞吐。GLM-5.2 双方都 day-0 支持。
 **详见**：`phase7 §推理框架对比`
 **相关**：PagedAttention / RadixAttention / TensorRT-LLM
 
@@ -242,7 +242,7 @@
 ### 五、Agent / 应用类（5 条）
 
 #### Agent
-**定义**：由 LLM 驱动的"感知—规划—工具—反思"循环执行体。GLM-5.1 定位"100+ 轮工具调用 / 8 小时连续不掉链子"。
+**定义**：由 LLM 驱动的"感知—规划—工具—反思"循环执行体。GLM-5.2 定位"100+ 轮工具调用 / 8 小时连续不掉链子"。
 **详见**：`phase8 §架构总览`
 **相关**：ReAct / Tool Calling / Reflexion
 
@@ -331,6 +331,6 @@
 
 1. **Pretrain → SFT → RLHF/RLVR 三阶段范式**（`phase_basics §13`）——整套笔记的骨架，每一段方法论都是在回答"这是哪一阶段的事情"。
 2. **KV Cache + Prefill/Decode**（`phase_basics §16`）——Phase 7 部署一半的内容（PagedAttention / RadixAttention / Speculative / FP8）都是为了优化它。
-3. **MoE + MLA + DSA 三件套**（`phase0 §1` / `phase2 §1.2-1.5`）——GLM-5.1 全部架构创新都在这里，不懂这三个无法看 GLM-5.1 模型卡。
+3. **MoE + MLA + DSA 三件套**（`phase0 §1` / `phase2 §1.2-1.5`）——GLM-5.2 全部架构创新都在这里，不懂这三个无法看 GLM-5.2 模型卡。
 4. **Loss Masking + Chat Template**（`phase4 §4.2 / §10.5`）——SFT 最容易踩雷的地方（`<|im_end|>` 必须算 loss、observation 必须屏蔽），决定 SFT 是否会"全军覆没"。
 5. **Decontamination 与 LiveCodeBench**（`phase1 §3.8` / `phase6`）——任何看似漂亮的 HumanEval 分数没去污染就是幻觉，先建立"哪些指标可信"的免疫力比训模型更重要。

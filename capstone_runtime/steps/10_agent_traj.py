@@ -2,7 +2,7 @@
 """
 Step 10 — Agent 轨迹合成（30 题 × 35 尝试 ≈ 1050 条）。
 
-WHAT: 复用 lib/mini_agent.py 作为采集器：每题让"老师模型"（GLM-5.1 API 或本地
+WHAT: 复用 lib/mini_agent.py 作为采集器：每题让"老师模型"（GLM-5.2 API 或本地
      Air-Instruct）跑 ReAct loop，把完整 (思考, tool_call, tool_result) 序列存 jsonl。
 
 REQUIRES:

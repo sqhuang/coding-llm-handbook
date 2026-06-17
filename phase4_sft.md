@@ -397,7 +397,7 @@ LLaMA Factory 在 `dataset_info.json` 里用 `role_tag` 字段明确角色，ms-
 
 | 维度 | LLaMA Factory | ms-swift (ModelScope Swift) | Axolotl |
 |---|---|---|---|
-| 对 GLM 支持 | 原生支持 GLM-4 / GLM-4.5 / GLM-5.1 | **一流支持**（阿里 + ZhipuAI 紧密合作） | 社区适配，通常比前两家慢一版本 |
+| 对 GLM 支持 | 原生支持 GLM-4 / GLM-4.5 / GLM-5.2 | **一流支持**（阿里 + ZhipuAI 紧密合作） | 社区适配，通常比前两家慢一版本 |
 | 易用性 | YAML + WebUI，最适合初学者 | YAML + CLI + Python API | YAML，偏工程 |
 | 分布式 | DeepSpeed / FSDP / Megatron-LM 桥接 | DeepSpeed / FSDP / Megatron-SWIFT | DeepSpeed / FSDP |
 | PEFT | LoRA / QLoRA / DoRA / GaLore / PiSSA / LoftQ | LoRA / QLoRA / DoRA / LongLoRA / LoRA+ / LISA / Unsloth | LoRA / QLoRA / ReLoRA / GaLore |
@@ -603,7 +603,7 @@ llamafactory-cli chat \
 ### 7.6 常见坑位
 
 1. **`trust_remote_code: true` 必须开**，GLM 模型用的是 `modeling_chatglm.py` 里的自定义 attention。
-2. **template 选错 → 全军覆没**：GLM-4 / GLM-4.5 / GLM-5.1 的 chat template 不完全一样，LLaMA Factory 里分别是 `glm4`、`glm4_5`（如有）、`glm5_1`。训练前先 `llamafactory-cli chat` 试一下 base 模型对不对话得上。
+2. **template 选错 → 全军覆没**：GLM-4 / GLM-4.5 / GLM-5.2 的 chat template 不完全一样，LLaMA Factory 里分别是 `glm4`、`glm4_5`（如有）、`glm5_1`。训练前先 `llamafactory-cli chat` 试一下 base 模型对不对话得上。
 3. **MoE 模型的 target_modules**：千万别手滑把 router 的 `gate` 层挂 LoRA，会把路由打乱。GLM-4.5-Air 的 MoE 层里 `gate` 是 router，`gate_proj` 才是 FFN 的一部分。
 4. **Liger-Kernel**：安装 `liger-kernel` 后加 `enable_liger_kernel: true` 可以省 20% 显存、提速 10-20%。
 5. **数据里 tool_calls 字段格式**：LLaMA Factory 默认期望 `tool_calls` 是 list，每个元素有 `name` 和 `arguments`（dict 或 JSON string）。序列化格式对不上会静默丢弃。

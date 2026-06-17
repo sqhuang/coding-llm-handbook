@@ -1,30 +1,30 @@
-# Phase 7：GLM-5.1 / GLM-4.5 推理部署优化深度笔记
+# Phase 7：GLM-5.2 / GLM-4.5 推理部署优化深度笔记
 
 > 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
 
 > **⚡ 三句话要点**
 > 1. 8×H200 甜点配置：**SGLang + FP8 + MTP speculative decoding + RadixAttention**（前缀缓存），单 Pod 能跑到 ~80% 理论吞吐上限。
-> 2. 消费级 **KTransformers + 1×4090 + 1TB DDR5 + SPR AMX**，跑 GLM-5.1 ~8 tok/s——能离线跑，但不够 agent 在线用。
+> 2. 消费级 **KTransformers + 1×4090 + 1TB DDR5 + SPR AMX**，跑 GLM-5.2 ~8 tok/s——能离线跑，但不够 agent 在线用。
 > 3. 引擎选型分流：**MoE + long-context → SGLang**；通用 + 多模 + ECC 严格 → vLLM；纯 batch 离线 → TensorRT-LLM。
 
 > 目标读者：已有 GPU 推理优化经验的中国 AI 研究者
 > 完成日期：2026-04-22
-> 模型焦点：GLM-5.1（754B total / 40B active，256+1 experts，78 layers，MTP 层内置）、GLM-4.5（355B total / 32B active，160 experts）、GLM-4.5-Air（轻量 MoE 变体）
-> 参考：SGLang cookbook (GLM-5.1)、vLLM recipes、KTransformers kt-kernel、xLLM (JD)、DeepSeek-V3 tech report、AWQ/GPTQ/SmoothQuant 论文、PagedAttention (2309.06180)、RadixAttention (2312.07104)、EAGLE/Medusa/MTP
+> 模型焦点：GLM-5.2（744B total / 40B active，256+1 experts，78 layers，MTP 层内置）、GLM-4.5（355B total / 32B active，160 experts）、GLM-4.5-Air（轻量 MoE 变体）
+> 参考：SGLang cookbook (GLM-5.2)、vLLM recipes、KTransformers kt-kernel、xLLM (JD)、DeepSeek-V3 tech report、AWQ/GPTQ/SmoothQuant 论文、PagedAttention (2309.06180)、RadixAttention (2312.07104)、EAGLE/Medusa/MTP
 
-> **读者画像** · 准备把 GLM-5.1 / GLM-4.5-Air 在自己机房或云上稳定跑起来的推理工程师；workload 从离线批处理到在线 agent 都要 cover。
-> **前置知识** · 序.16 prefill+decode+KV cache（[basics](./phase_basics_training.md)）；phase0 §1 GLM-5.1 架构表；用过 vLLM / SGLang / TensorRT-LLM 任一个。
+> **读者画像** · 准备把 GLM-5.2 / GLM-4.5-Air 在自己机房或云上稳定跑起来的推理工程师；workload 从离线批处理到在线 agent 都要 cover。
+> **前置知识** · 序.16 prefill+decode+KV cache（[basics](./phase_basics_training.md)）；phase0 §1 GLM-5.2 架构表；用过 vLLM / SGLang / TensorRT-LLM 任一个。
 > **学完能做** · 给定 workload 和硬件预算，选对引擎+量化+并行策略，并跑出 ≥ 80% 理论上限的吞吐 / 延迟。
 
 ---
 
-## 0. 为什么 GLM-5.1 的部署是一个"硬骨头"
+## 0. 为什么 GLM-5.2 的部署是一个"硬骨头"
 
 先把模型本身的结构说清楚，否则后面所有优化决策都没有根。
 
-GLM-5.1 的关键架构事实：
+GLM-5.2 的关键架构事实：
 
-- **Total params：754B；Activated：40B**。MoE 稀疏度 ~18.7×，意味着显存放满（weight-dominated）、计算相对稀疏（activation-bound）。
+- **Total params：744B；Activated：40B**。MoE 稀疏度 ~18.7×，意味着显存放满（weight-dominated）、计算相对稀疏（activation-bound）。
 - **Experts：256 routed + 1 shared**，每个 token 激活 8 routed + 1 shared = 9 experts。
 - **78 transformer layers**，深而窄，OOM 往往发生在 layer-wise 中间激活而非权重。
 - **MTP（Multi-Token Prediction）层已经内置于 checkpoint**，拿来即可做 speculative decoding 的 draft head，不需要再训 Medusa 头或 EAGLE 层。
@@ -37,7 +37,7 @@ GLM-4.5-Air：**106B total / 12B active**，8×A100-80G 甚至 4×A100 + AWQ 可
 
 **部署层面的三个核心矛盾**：
 
-1. **显存 vs 带宽**：BF16 下 754B = 1.4TB 级，单机 8×H200 (141GB×8=1128GB) 也放不下，必须走 FP8 或分布式（跨节点 EP）。
+1. **显存 vs 带宽**：BF16 下 744B = 1.4TB 级，单机 8×H200 (141GB×8=1128GB) 也放不下，必须走 FP8 或分布式（跨节点 EP）。
 2. **MoE 路由 vs 张量并行**：TP 会把每个 expert 的权重切到所有卡；EP 把不同 expert 放不同卡。前者激活全局 all-reduce、后者激活 all-to-all。选错通信模式直接掉 40% throughput。
 3. **Prefill-heavy vs Decode-heavy workload**：200K 长上下文的 prefill 是 compute-bound，batch decoding 是 memory-bound。用同一套配置跑两种 workload 永远不最优，要么 chunked prefill 混合，要么 PD 分离。
 
@@ -49,7 +49,7 @@ GLM-4.5-Air：**106B total / 12B active**，8×A100-80G 甚至 4×A100 + AWQ 可
 
 | 特性 | SGLang | vLLM | TensorRT-LLM | KTransformers | xLLM (JD) | HF Transformers |
 |---|---|---|---|---|---|---|
-| **GLM-5.1 day-0 支持** | 是（与 DS-V3.2 共享结构） | 是（0.11 起，recipes/GLM5.md） | 部分（需手写 plugin） | 是（kt-kernel tutorial 已发布） | 是（day-0） | 是（基础 config） |
+| **GLM-5.2 day-0 支持** | 是（与 DS-V3.2 共享结构） | 是（0.11 起，recipes/GLM5.md） | 部分（需手写 plugin） | 是（kt-kernel tutorial 已发布） | 是（day-0） | 是（基础 config） |
 | **MoE 推理** | EP + TP + DP 混合，支持专家亲和调度 | EP + TP，`--enable-expert-parallel` | EP + TP，plugin 形式 | CPU-offload experts + GPU 热 expert | 动态 expert load balance | 无优化 |
 | **Speculative decoding** | EAGLE / EAGLE-2/3 / MTP / draft-model / SpecV2 overlap scheduler | MTP / EAGLE / Medusa / ngram | Medusa / EAGLE / draft-model | 跟随 SGLang 后端 | MTP + draft | 无 |
 | **FP8** | E4M3 weight + act，CUTLASS/DeepGEMM backend，H100/H200/B200/MI300 | E4M3，LLM Compressor 产物直接用 | NVFP8 per-tensor / per-block，最成熟 | kt-method FP8（weight-only + CPU BF16 expert） | FP8 on NPU/GPU | 有限 |
@@ -65,12 +65,12 @@ GLM-4.5-Air：**106B total / 12B active**，8×A100-80G 甚至 4×A100 + AWQ 可
 | **国产 NPU（Ascend/Hygon）** | 部分 | 部分（vllm-ascend 分支） | 否 | 否 | **主场**（JD 内部生产） | 否 |
 | **OpenAI API 兼容** | 是 | 是 | 是（Triton） | 是（经 SGLang 代理） | 是 | 否 |
 
-**选型决策树（对 GLM-5.1/4.5）**：
+**选型决策树（对 GLM-5.2/4.5）**：
 
 - 企业级 8×H100/H200/B200 + 追求吞吐 → **SGLang**（RadixAttention 对多轮 agent 场景 +30%，SpecV2 + MTP 叠加增益大）
 - 企业级 + 追求 ecosystem / 生产稳定 → **vLLM**（recipes 官方维护，OpenAI API 最稳，disagg PD 已商用）
 - 企业级 + NVIDIA 纯血 + 极致 latency → **TensorRT-LLM**（FP8 kernel 最快，但开发成本高，plugin 需自己写）
-- CPU 内存大 / GPU 显存不够 → **KTransformers**（AMX + expert offload，单张 4090 + 1TB DDR5 跑 GLM-5.1 Q4 可行）
+- CPU 内存大 / GPU 显存不够 → **KTransformers**（AMX + expert offload，单张 4090 + 1TB DDR5 跑 GLM-5.2 Q4 可行）
 - 国产化 + NPU → **xLLM**（JD 开源，Ascend/海光优化）
 
 ---
@@ -79,20 +79,20 @@ GLM-4.5-Air：**106B total / 12B active**，8×A100-80G 甚至 4×A100 + AWQ 可
 
 ### 2.1 并行维度的选择
 
-对 GLM-5.1（256 experts）：
+对 GLM-5.2（256 experts）：
 
 - **TP（Tensor Parallel）**：每个 expert 的权重被切到所有 TP rank 上。通信：所有 GEMM 的 all-reduce。问题：expert 越多、激活越稀疏，all-reduce 的 payload 里全是 0，浪费带宽。
 - **EP（Expert Parallel）**：expert 在 rank 间分布，一个 rank 负责 256/EP_size 个 expert。通信：all-to-all dispatch + combine。优势：当 batch 大、token 数多时，all-to-all 能把稀疏通信变稠密；劣势：**expert 负载不均衡** 是 EP 的致命伤。
 - **DP（Data Parallel）**：attention 部分做 DP、MoE 部分做 EP 是当前主流。SGLang 的 `--enable-dp-attention` + `--dp 8 --ep 8` 组合。
 
-**8×H200 FP8 的推荐组合**（GLM-5.1）：
+**8×H200 FP8 的推荐组合**（GLM-5.2）：
 - TP=8、EP=1：简单粗暴，all-reduce 瓶颈，适合 batch 小于 32。
 - **TP=1、EP=8、DP=8**：batch 大（>64）且 throughput-critical 时最优，但每 rank 要放 32 个 expert。
 - TP=2、EP=4、DP=4：一种折中，对 attention 也有 TP 切分，头数 96 能整除 2。
 
 ### 2.2 专家激活率监控
 
-GLM-5.1 top-8 routing 理论上每个 expert 的激活率应为 8/256 = 3.125%，但实际 production traffic 下会严重偏斜（hot expert 可能 15%、cold 0.5%）。监控手段：
+GLM-5.2 top-8 routing 理论上每个 expert 的激活率应为 8/256 = 3.125%，但实际 production traffic 下会严重偏斜（hot expert 可能 15%、cold 0.5%）。监控手段：
 
 - SGLang：`--enable-expert-distribution-record`，定期 dump 路由直方图。
 - vLLM：通过 hook torch.distributed 的 all-to-all payload 统计。
@@ -104,7 +104,7 @@ GLM-5.1 top-8 routing 理论上每个 expert 的激活率应为 8/256 = 3.125%�
 
 MoE gating 本身是 `[B, S, H] @ [H, E]` 的 GEMM，对 E=256 来说是可忽略的（<1% 时间）。真正的开销在：
 
-1. **TopK + softmax**：GLM-5.1 用 sigmoid gating（不是 softmax），topk=8，GPU 上 radix select，单 layer ~50μs。
+1. **TopK + softmax**：GLM-5.2 用 sigmoid gating（不是 softmax），topk=8，GPU 上 radix select，单 layer ~50μs。
 2. **token 重排（permute）**：把属于同 expert 的 token 收集到一起再喂 GEMM。SGLang/vLLM 都用 `moe_align_block_size` kernel，block-wise permute。
 3. **all-to-all 通信**：在 EP 场景下是最大头，NVLink 上 8-GPU all-to-all 的 latency 约 200-500μs per layer；跨节点（IB）则是 2-5ms。
 4. **稀疏 GEMM**：每个 expert 的 GEMM 是不同 shape（动态 M）。FlashInfer / TRT-LLM 用 grouped GEMM kernel，SGLang 用 `moe_runner_backend=flashinfer_trtllm`。
@@ -130,9 +130,9 @@ MoE gating 本身是 `[B, S, H] @ [H, E]` 的 GEMM，对 E=256 来说是可忽�
 | per-channel（weight）/ per-token（act） | 粒度细化 | 好 | 高 |
 | **per-block 128×128 / per-token-group 1×128** | DeepSeek-V3 首创 | 接近 BF16 | 高（DeepGEMM 优化后） |
 
-**GLM-5.1-FP8 checkpoint**：官方用的是 per-block (128×128) weight scale + per-token (1×128) activation scale，与 DeepSeek-V3 同款，因此能直接复用 DeepGEMM 的 kernel（SGLang `--fp8-gemm-backend cutlass` 或 `deepgemm`）。
+**GLM-5.2-FP8 checkpoint**：官方用的是 per-block (128×128) weight scale + per-token (1×128) activation scale，与 DeepSeek-V3 同款，因此能直接复用 DeepGEMM 的 kernel（SGLang `--fp8-gemm-backend cutlass` 或 `deepgemm`）。
 
-**精度损失**：GLM-5.1-FP8 相对 BF16，在 MMLU / HumanEval / SWE-bench 上误差 <0.3pp，工程上可视为无损。
+**精度损失**：GLM-5.2-FP8 相对 BF16，在 MMLU / HumanEval / SWE-bench 上误差 <0.3pp，工程上可视为无损。
 
 **throughput 增益**：FP8 vs BF16 在 H100 上 compute 吞吐 2×，但 MoE 的 memory-bound 阶段（单 batch decode）只有 ~1.3-1.5×（因为还是被 HBM 带宽限制）。对 prefill 批量大的场景是 1.8×。
 
@@ -178,7 +178,7 @@ MoE gating 本身是 `[B, S, H] @ [H, E]` 的 GEMM，对 E=256 来说是可忽�
 
 精度损失 ~1pp，throughput 在 H100 decode 阶段接近 2× FP8。但成熟度低，production 谨慎。
 
-### 3.6 对 GLM-5.1 的量化总结
+### 3.6 对 GLM-5.2 的量化总结
 
 | 方案 | 存储 | H100 decode 相对 BF16 | 精度损失 | 推荐场景 |
 |---|---|---|---|---|
@@ -206,14 +206,14 @@ MoE gating 本身是 `[B, S, H] @ [H, E]` 的 GEMM，对 E=256 来说是可忽�
 | Small draft model（70B 用 7B） | 需要额外训练 | 0.7-0.85 | +10% | 差（draft 结构和 target 不一致） |
 | **Medusa** | 需要 fine-tune 多个头 | ~0.6 | +5% | 中 |
 | **EAGLE-1/2/3** | 需要训一层 transformer（EAGLE-3 更强，NeurIPS'25） | ~0.8-0.9 | +8% | 中 |
-| **MTP（GLM-5.1 / DeepSeek-V3 自带）** | 0（checkpoint 自带） | 0.85-0.95（>90% 报告值） | 本来就在权重里 | **最好** |
+| **MTP（GLM-5.2 / DeepSeek-V3 自带）** | 0（checkpoint 自带） | 0.85-0.95（>90% 报告值） | 本来就在权重里 | **最好** |
 
-**GLM-5.1 / GLM-4.5 的 MTP 特殊性**：MTP layer 本身是 MoE 层（而非 dense），也就是说 draft step 也要走 top-k routing。这带来两个影响：
+**GLM-5.2 / GLM-4.5 的 MTP 特殊性**：MTP layer 本身是 MoE 层（而非 dense），也就是说 draft step 也要走 top-k routing。这带来两个影响：
 
 1. Draft 成本高于 dense MTP，约占 target forward 的 15%（DeepSeek-V3 的 dense MTP 只 5%）。
 2. 但接受率显著更高（90%+），因为 draft 和 target 共享 expert 表达空间。
 
-**结论**：GLM-5.1 生产推理**无脑开 MTP**。只需要选 k。
+**结论**：GLM-5.2 生产推理**无脑开 MTP**。只需要选 k。
 
 - `num_speculative_tokens=1`：最稳，vLLM recipes 推荐，throughput-critical。
 - `num_speculative_tokens=3`：latency-critical，TTFT/ITL 更低，但大 batch 下 verify 开销可能反而变慢。
@@ -317,8 +317,8 @@ vLLM V1 默认开启。SGLang 用 `--chunked-prefill-size 16384` 控制。trade-
 
 ### 6.1 显存预算
 
-GLM-5.1 的 KV cache per token（FP8）：
-- `2 (K+V) × 78 layers × 96 heads × 128 head_dim × 1 byte ≈ 1.9 MB/token` → **wait，GLM-5.1 用 GQA**，实际 KV heads ≪ 96。
+GLM-5.2 的 KV cache per token（FP8）：
+- `2 (K+V) × 78 layers × 96 heads × 128 head_dim × 1 byte ≈ 1.9 MB/token` → **wait，GLM-5.2 用 GQA**，实际 KV heads ≪ 96。
 - 假设 KV heads = 8（典型 GQA 比例），则 `2 × 78 × 8 × 128 × 1 = 160 KB/token`。
 - 200K tokens = **32GB KV cache**。
 
@@ -334,7 +334,7 @@ GLM-5.1 的 KV cache per token（FP8）：
 
 ### 6.3 Sliding window / sparse attention
 
-GLM-5.1 的 DSA（DeepSeek Sparse Attention）kernel 在 SGLang 里用 `--attention-backend nsa`（Native Sparse Attention）启用：
+GLM-5.2 的 DSA（DeepSeek Sparse Attention）kernel 在 SGLang 里用 `--attention-backend nsa`（Native Sparse Attention）启用：
 
 ```bash
 --attention-backend nsa \
@@ -350,13 +350,13 @@ DSA 把 attention 的 O(n²) 退化到 O(n·k)（k 是稀疏度），200K 下比
 
 ### 7.1 企业级：8×H100 / 8×H200 FP8
 
-- **8×H200（141GB×8 = 1128GB）**：GLM-5.1-FP8（750GB weights）+ 32GB/卡 activation+KV = **刚好够**，上 TP=8 最简单。
-- **8×H100（80GB×8 = 640GB）**：放不下 GLM-5.1-FP8，需要 TP=16 跨 2 节点；或者只跑 GLM-4.5（355B total，FP8 约 170GB，单机充裕）。
+- **8×H200（141GB×8 = 1128GB）**：GLM-5.2-FP8（750GB weights）+ 32GB/卡 activation+KV = **刚好够**，上 TP=8 最简单。
+- **8×H100（80GB×8 = 640GB）**：放不下 GLM-5.2-FP8，需要 TP=16 跨 2 节点；或者只跑 GLM-4.5（355B total，FP8 约 170GB，单机充裕）。
 - **8×B200（180GB×8 = 1440GB）**：最舒服，还能加 NVFP4 再压一次，batch 放到 128+。
 
-**对 GLM-5.1 在 8×H200 FP8 的推荐生产配置**：
+**对 GLM-5.2 在 8×H200 FP8 的推荐生产配置**：
 - Engine：SGLang 0.4+（Radix + SpecV2 对多轮收益最大）
-- 量化：FP8（E4M3 per-block，官方 `zai-org/GLM-5.1-FP8`）
+- 量化：FP8（E4M3 per-block，官方 `zai-org/GLM-5.2-FP8`）
 - 并行：**TP=8、EP=1（单 batch 低并发）** 或 **DP=2、TP=4、EP=8（高并发吞吐）**
 - Speculative：MTP，num_speculative_tokens=1（生产稳态）或 3（交互式）
 - KV：PagedAttention + RadixAttention + Chunked Prefill（默认）
@@ -366,7 +366,7 @@ DSA 把 attention 的 O(n²) 退化到 O(n·k)（k 是稀疏度），200K 下比
 
 A100 无 FP8 硬件支持，必须用 AWQ (W4A16) 或 SmoothQuant (W8A8)。
 
-- **8×A100-80G**：GLM-4.5-AWQ（~85GB） 或 GLM-5.1-AWQ（~200GB）都能放。对 GLM-5.1 走 TP=8。
+- **8×A100-80G**：GLM-4.5-AWQ（~85GB） 或 GLM-5.2-AWQ（~200GB）都能放。对 GLM-5.2 走 TP=8。
 - **8×A100-40G**：GLM-4.5-Air-AWQ (30GB 左右) 是最现实的 production baseline。
 - 速度对比：A100 AWQ decode ~60% of H100 FP8 decode（同样 8 卡）。
 
@@ -379,7 +379,7 @@ KTransformers 的思路：
 - MoE experts（大头）放 **CPU**，用 AMX (Advanced Matrix Extensions) 指令集跑 BF16/Q4。Intel Sapphire Rapids / Emerald Rapids 原生 AMX。
 - **Expert Deferral**：热 expert 复制到 GPU（`--kt-num-gpu-experts`），cold expert 留 CPU，CPU 利用率 75% → 100%，+1.45× throughput。
 
-对 GLM-5.1 的 KTransformers 配置：
+对 GLM-5.2 的 KTransformers 配置：
 ```bash
 --kt-num-gpu-experts 30         # FP8 模式下放 30 个热 expert 到 GPU
 --kt-method FP8
@@ -389,7 +389,7 @@ KTransformers 的思路：
 --max-total-tokens 128000
 ```
 
-实测（社区数据）：单 4090 + 1TB DDR5 + 96 核 SPR，GLM-5.1-Q4 decode ~8 tokens/s，prefill ~200 tokens/s。**能跑**，不能商用，但个人研究/微调调试/小规模 agent 可行。
+实测（社区数据）：单 4090 + 1TB DDR5 + 96 核 SPR，GLM-5.2-Q4 decode ~8 tokens/s，prefill ~200 tokens/s。**能跑**，不能商用，但个人研究/微调调试/小规模 agent 可行。
 
 如果想更快：**双 4090 NVLink + 512GB DDR5**，decode 能到 15-20 tokens/s。或者走 **Mac Studio M3 Ultra 512GB 统一内存**，MLX + mlx-lm 直接跑（但 MLX 对 MoE 优化不如 KTransformers，decode ~12 tokens/s）。
 
@@ -397,7 +397,7 @@ KTransformers 的思路：
 
 ## 8. 实操命令
 
-### 8.1 SGLang 启动 GLM-5.1-FP8（8×H200，完整生产配置）
+### 8.1 SGLang 启动 GLM-5.2-FP8（8×H200，完整生产配置）
 
 ```bash
 # 环境
@@ -408,7 +408,7 @@ export NCCL_IB_HCA=mlx5
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 python -m sglang.launch_server \
-    --model-path zai-org/GLM-5.1-FP8 \
+    --model-path zai-org/GLM-5.2-FP8 \
     --host 0.0.0.0 --port 30000 \
     --tp 8 \
     --mem-fraction-static 0.85 \
@@ -468,9 +468,9 @@ vllm serve zai-org/GLM-4.5-Air-AWQ \
     --port 8000
 ```
 
-GLM-5.1-FP8 在 8×H200 上的 vLLM 版：
+GLM-5.2-FP8 在 8×H200 上的 vLLM 版：
 ```bash
-vllm serve zai-org/GLM-5.1-FP8 \
+vllm serve zai-org/GLM-5.2-FP8 \
     --tensor-parallel-size 8 \
     --max-model-len 131072 \
     --gpu-memory-utilization 0.95 \
@@ -495,8 +495,8 @@ export KT_AMX=1
 
 python -m sglang.launch_server \
     --host 0.0.0.0 --port 30000 \
-    --model /models/GLM-5.1-FP8 \
-    --kt-weight-path /models/GLM-5.1-FP8 \
+    --model /models/GLM-5.2-FP8 \
+    --kt-weight-path /models/GLM-5.2-FP8 \
     --kt-method FP8 \
     --kt-num-gpu-experts 30 \
     --kt-cpuinfer 96 \
@@ -527,7 +527,7 @@ resp = client.chat.completions.create(
     ],
     temperature=0.3,
     max_tokens=4096,
-    # GLM-5.1 thinking mode
+    # GLM-5.2 thinking mode
     extra_body={"thinking": {"type": "enabled"}}
 )
 
@@ -594,7 +594,7 @@ python -m sglang.bench_serving \
 离线 throughput：
 ```bash
 python benchmark_throughput.py \
-    --model zai-org/GLM-5.1-FP8 \
+    --model zai-org/GLM-5.2-FP8 \
     --input-len 2048 --output-len 512 \
     --num-prompts 1000 \
     --backend vllm \
@@ -606,7 +606,7 @@ python benchmark_throughput.py \
 python benchmark_serving.py \
     --backend vllm \
     --base-url http://localhost:8000 \
-    --model zai-org/GLM-5.1-FP8 \
+    --model zai-org/GLM-5.2-FP8 \
     --dataset-name sharegpt \
     --dataset-path /data/ShareGPT_V3.json \
     --num-prompts 1000 \
@@ -630,11 +630,11 @@ python benchmark_serving.py \
 
 1. **量化**：FP8 是 H100+ 的默认起点；AWQ 是 A100 的默认起点。**不要用 BF16 跑 production**。
 2. **开 prefix cache / RadixAttention**：agent / 多轮场景 +30%-40% throughput，几乎零成本。
-3. **开 MTP speculative decoding**：GLM-5.1/4.5 checkpoint 自带，不开白不开，+50-100% decode throughput。生产 `k=1`，交互 `k=3`。
+3. **开 MTP speculative decoding**：GLM-5.2/4.5 checkpoint 自带，不开白不开，+50-100% decode throughput。生产 `k=1`，交互 `k=3`。
 4. **Chunked prefill**：长 prompt 必开，默认 16K chunk。
 5. **TP degree 选择**：
    - MoE 模型：优先 TP 小、EP/DP 大。TP=8 是粗暴基线；**TP=1+EP=8+DP=8** 在 batch>64 时通常更优。
-   - Attention heads 必须能被 TP 整除（GLM-5.1: 96 heads，TP ∈ {1,2,3,4,6,8,12,16,24,32} 都合法）。
+   - Attention heads 必须能被 TP 整除（GLM-5.2: 96 heads，TP ∈ {1,2,3,4,6,8,12,16,24,32} 都合法）。
    - 跨节点 TP 在 IB 慢（<400Gbps），尽量避免；跨节点走 PP 或 DP。
 6. **Batch size sweet spot**：
    - Decode：batch=32-64 是 H100/H200 FP8 的 sweet spot（HBM 带宽打满）。
@@ -643,10 +643,10 @@ python benchmark_serving.py \
    - 适用：SLO 严苛（TTFT < 500ms + ITL < 50ms）、且流量大。
    - 架构：一组 prefill instance（大 batch、compute-heavy）+ 一组 decode instance（小 batch、memory-heavy），用 Mooncake / NIXL 传 KV。
    - 收益：TTFT tail 降 3×，但不提升总吞吐。生产 2026 年已成熟（vLLM、SGLang、xLLM 都有）。
-8. **Speculative + quantization 叠加**：FP8 + MTP 是目前的组合拳，实测 H100 上 GLM-5.1 相对 BF16 无 spec 的 decode throughput 2.3-2.8×。
+8. **Speculative + quantization 叠加**：FP8 + MTP 是目前的组合拳，实测 H100 上 GLM-5.2 相对 BF16 无 spec 的 decode throughput 2.3-2.8×。
 9. **Expert load monitoring**：生产跑一周后检查专家激活直方图，如 p99/p50 > 2× 要考虑 xLLM 动态均衡或手动 expert 重排。
 10. **Kernel backend 选择**：
-    - H100 FP8 GEMM：DeepGEMM > CUTLASS > cuBLAS（对 GLM-5.1 的 per-block scaling 只有前两者支持）。
+    - H100 FP8 GEMM：DeepGEMM > CUTLASS > cuBLAS（对 GLM-5.2 的 per-block scaling 只有前两者支持）。
     - MoE grouped GEMM：flashinfer_trtllm ≈ deepep > fused_moe（triton）。
     - All-to-all：DeepEP（DeepSeek 开源）在 IB 上比 NCCL 快 1.5×，EP 场景必备。
 11. **Watchdog / timeout**：SGLang `--watchdog-timeout 3000`，长 prompt 下避免默认 60s 误杀。
@@ -654,11 +654,11 @@ python benchmark_serving.py \
 
 ---
 
-## 11. 备忘：GLM-5.1 vs GLM-4.5 部署差异一览
+## 11. 备忘：GLM-5.2 vs GLM-4.5 部署差异一览
 
-| 项目 | GLM-4.5 | GLM-4.5-Air | GLM-5.1 |
+| 项目 | GLM-4.5 | GLM-4.5-Air | GLM-5.2 |
 |---|---|---|---|
-| Total / Active | 355B / 32B | 106B / 12B | 754B / 40B |
+| Total / Active | 355B / 32B | 106B / 12B | 744B / 40B |
 | Experts | 160 | 128 | 256 + 1 shared |
 | Layers | - | - | 78 |
 | MTP 层类型 | MoE | MoE | MoE |
@@ -672,10 +672,10 @@ python benchmark_serving.py \
 
 ## 附：关键资源清单
 
-- SGLang GLM-5.1 cookbook: `https://cookbook.sglang.io/autoregressive/GLM/GLM-5.1`
+- SGLang GLM-5.2 cookbook: `https://cookbook.sglang.io/autoregressive/GLM/GLM-5.2`
 - SGLang GLM-5 cookbook (含 B200/MI300 变体): `https://github.com/sgl-project/sgl-cookbook/blob/main/docs/autoregressive/GLM/GLM-5.md`
 - vLLM recipes: `https://github.com/vllm-project/recipes/tree/main/GLM`
-- KTransformers GLM-5.1 tutorial: `https://github.com/kvcache-ai/ktransformers/blob/main/doc/en/kt-kernel/GLM-5.1-Tutorial.md`
+- KTransformers GLM-5.2 tutorial: `https://github.com/kvcache-ai/ktransformers/blob/main/doc/en/kt-kernel/GLM-5.2-Tutorial.md`
 - KTransformers SOSP'25 paper: `dl.acm.org/doi/10.1145/3731569.3764843`
 - xLLM (JD): `https://github.com/jd-opensource/xllm` + arxiv 2510.14686
 - DeepSeek-V3 tech report: `https://arxiv.org/pdf/2412.19437`
@@ -725,7 +725,7 @@ python benchmark_serving.py \
 
 ## 动手练习
 
-1. 浏览 SGLang 与 vLLM 各自的 GLM-5.1 cookbook / recipes，把启动命令的关键 flag（`--quantization`、`--enable-expert-parallel`、`--speculative-...`、`--enable-prefix-caching`）逐项对应到本笔记 §1 的引擎对比表，找出至少 3 处文档差异并解释。
+1. 浏览 SGLang 与 vLLM 各自的 GLM-5.2 cookbook / recipes，把启动命令的关键 flag（`--quantization`、`--enable-expert-parallel`、`--speculative-...`、`--enable-prefix-caching`）逐项对应到本笔记 §1 的引擎对比表，找出至少 3 处文档差异并解释。
    *提示*：直接看 SGLang/vLLM 仓库的 docs 目录。
 2. 在 1×4090 + 64GB RAM 的消费级机器上用 KTransformers 把 GLM-4.5-Air-AWQ 跑起来（offload experts 到 CPU），用 `bench_serving` 测 batch=1 / seq_in=2k / seq_out=512 的 TTFT 和 TPS，并和理论值（4090 显存带宽 / GLM-4.5-Air 激活参数量）对比，估算 MFU。
    *提示*：KTransformers tutorial + §3 量化章节；TPS ≈ memory_bw / activated_params_bytes 是头等估算。
@@ -869,7 +869,7 @@ python benchmark_serving.py \
 
 1. **每一类故障必须有 runbook**：写在 wiki 上，凌晨 3 点被叫醒的 oncall 能照做。
 2. **回滚比修复优先。** 永远保留前一版稳定 checkpoint + 推理镜像，10 分钟内能切回。
-3. **降级路径要先做。** 当模型完全不可用时，必须有"返回 base model API（GLM-5.1 公网 API）"的降级路径，业务不能死在你身上。
+3. **降级路径要先做。** 当模型完全不可用时，必须有"返回 base model API（GLM-5.2 公网 API）"的降级路径，业务不能死在你身上。
 4. **每月一次故障演练。** 主动 kill 一台节点、主动喂超长 prompt——找出预案漏洞比线上踩到强 100×。
 
 ### 12.6 混合云 / 私有化部署：什么情况下必须本地
@@ -891,7 +891,7 @@ python benchmark_serving.py \
 | 高度突发流量（10× spike） | 公有云弹性更好 |
 | 仅业务侧调用通用模型，无私域微调 | 没有差异化必要 |
 
-**混合方案最常见**：**敏感数据 / 高频路径用本地（GLM-5.1 私有部署），冷门 / 长尾 / 创新路径走 API（OpenAI / Anthropic / 智谱开放 API）**。给 router 配 fallback 链：本地超时 / 拒绝 → 二级私有节点 → 公网 API（脱敏后）。
+**混合方案最常见**：**敏感数据 / 高频路径用本地（GLM-5.2 私有部署），冷门 / 长尾 / 创新路径走 API（OpenAI / Anthropic / 智谱开放 API）**。给 router 配 fallback 链：本地超时 / 拒绝 → 二级私有节点 → 公网 API（脱敏后）。
 
 ### 12.7 SLA 承诺工程：定义 / 测量 / 兜底
 
@@ -923,7 +923,7 @@ python benchmark_serving.py \
 把上面所有内容浓缩成一个可执行的 30 天列表。**这个 checklist 也是给独立研究者 / 5 人小团队的最小可行版本。**
 
 **Week 1：基础设施 + 单实例**
-- [ ] 选定推理引擎（vLLM / SGLang / xLLM），完成单机 GLM-5.1 跑通
+- [ ] 选定推理引擎（vLLM / SGLang / xLLM），完成单机 GLM-5.2 跑通
 - [ ] FP8 vs BF16 在内部 SWE-Bench v0（10 题）上对比，确认质量回退 < 1pp
 - [ ] `bench_serving` 跑出真实流量画像下的 TPS、TTFT、ITL 基线
 - [ ] 容器化 + 镜像仓库（nvcr.io/your-org/your-vllm:vX.Y）
@@ -959,4 +959,4 @@ python benchmark_serving.py \
 
 **这五项任何一项答"否"——不要上线**。生产事故的 80% 都是因为这五项里有一项被忽略。
 
-**部署的最高境界**：当业务方完全感觉不到背后是 754B MoE 模型在跑，当 SRE oncall 半年没被叫醒，当成本月报里推理花费稳定在预测的 ±10%——你的 Coding LLM 平台才真正"活"了。这一节的所有内容，都是为了让你抵达那一天。
+**部署的最高境界**：当业务方完全感觉不到背后是 744B MoE 模型在跑，当 SRE oncall 半年没被叫醒，当成本月报里推理花费稳定在预测的 ±10%——你的 Coding LLM 平台才真正"活"了。这一节的所有内容，都是为了让你抵达那一天。

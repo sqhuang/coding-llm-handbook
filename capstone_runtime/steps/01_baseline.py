@@ -19,7 +19,7 @@ API keys; gives you a first signal in < 5 min instead of waiting for evalplus
 to download HumanEval+ + benchmark 164 problems.
 
 Usage:
-    export GLM_API_KEY=...                # or skip to disable GLM-5.1 leg
+    export GLM_API_KEY=...                # or skip to disable GLM-5.2 leg
     export LLM_BASE_URL=http://localhost:30000/v1
     export LLM_MODEL=glm-4.5-air-base
     python steps/01_baseline.py
@@ -132,17 +132,17 @@ def eval_one_model(label: str, base_url: str, api_key: str, model: str) -> dict:
 def main() -> int:
     targets: list[dict] = []
 
-    # GLM-5.1 API leg
+    # GLM-5.2 API leg
     glm_key = os.environ.get("GLM_API_KEY")
     if glm_key:
         targets.append({
-            "label": "GLM-5.1 (API)",
+            "label": "GLM-5.2 (API)",
             "base_url": os.environ.get("GLM_BASE_URL", "https://api.z.ai/v1"),
             "api_key": glm_key,
             "model": "glm-5.1",
         })
     else:
-        print("note: GLM_API_KEY not set — skipping GLM-5.1 API comparison")
+        print("note: GLM_API_KEY not set — skipping GLM-5.2 API comparison")
 
     # Local-deployed model (from step 15, or any OpenAI-compat endpoint)
     local_url = os.environ.get("LLM_BASE_URL")
@@ -182,7 +182,7 @@ def main() -> int:
             note = r.get("error", "")
             f.write(f"| {r['label']} (`{r['model']}`) | {r['passed']}/{r['total']} | {note} |\n")
         f.write("\n## 思考题（手填）\n")
-        f.write("- GLM-5.1 vs base 差距来源猜测：\n- 内部 5 题手测准备清单：\n")
+        f.write("- GLM-5.2 vs base 差距来源猜测：\n- 内部 5 题手测准备清单：\n")
     print(f"\n✓ wrote {out.relative_to(ROOT)}")
     return 0
 

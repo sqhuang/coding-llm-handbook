@@ -43,7 +43,7 @@ flowchart TB
     P4["Phase 4 · SFT<br/>✅ QLoRA 7-14B<br/>✅ 全参 ≤ 1.5B<br/>❌ 全参 ≥ 7B"]:::ok
     P5["Phase 5 · RL<br/>✅ TRL GRPO 1.5-3B<br/>✅ 单卡 vLLM rollout<br/>⚠️ VERL multi-node 不行"]:::partial
     P6["Phase 6 · 评测<br/>✅ evalplus / LiveCodeBench<br/>✅ SWE-Bench Lite 50 题<br/>📐 Int4 推理足够评测精度"]:::ok
-    P7["Phase 7 · 部署<br/>✅ vLLM/SGLang 7-32B Int4<br/>✅ 5090 FP8<br/>❌ 200K ctx + 754B"]:::ok
+    P7["Phase 7 · 部署<br/>✅ vLLM/SGLang 7-32B Int4<br/>✅ 5090 FP8<br/>❌ 1M ctx + 744B"]:::ok
     P8["Phase 8 · Agent<br/>✅ 全部（mini_agent 不挑卡）<br/>✅ Code RAG（embedding 1×24GB 够）"]:::ok
 
     P0 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8

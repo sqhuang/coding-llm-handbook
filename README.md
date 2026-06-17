@@ -4,7 +4,7 @@
 
 # Coding LLM Cookbook
 
-*从预训练到部署到 Agent 应用 · 主线 GLM-5.1 (754B MoE-DSA)*
+*从预训练到部署到 Agent 应用 · 主线 GLM-5.2 (744B MoE-DSA, 1M 上下文)*
 
 **30 万字 · 15 章 · 22 张图 · 27 个对比实验 · 60 道动手练习**
 
@@ -29,7 +29,7 @@
 
 ---
 
-> 研究对象：**GLM-5.1** (Z.ai, 2026-04-07, 754B MoE-DSA, MIT)
+> 研究对象：**GLM-5.2** (Z.ai, 2026-06-13, 744B MoE-DSA, 1M 上下文, MIT)
 > 辅线参照：GLM-4.5 ARC / DeepSeek-Coder-V2 / Qwen3-Coder / OpenCoder / StarCoder2
 > 目标：(1) 理解全栈 → (2) 小规模复现训练 → (3) 搭建自建 coding agent
 
@@ -43,7 +43,7 @@
 
 ### 🔧 推理 / 部署工程师（2 小时速通）
 你目标是把模型服务化，不关心训练细节。
-1. [phase0 §1 GLM-5.1 架构表](./phase0_foundation.md) (10min) — 知道 MoE-DSA / MLA 是什么
+1. [phase0 §1 GLM-5.2 架构表](./phase0_foundation.md) (10min) — 知道 MoE-DSA / MLA 是什么
 2. [phase7 整章](./phase7_deployment.md) (60min) — SGLang / vLLM / KTransformers / FP8 / 量化 / spec decoding
 3. [phase8 §1-§2](./phase8_agent_apps.md) (30min) — 怎么把 endpoint 接进 agent 外壳
 4. [💻 phase_consumer §3.4](./phase_consumer.md) (20min) — 4090 上 Int4 部署的现实
@@ -105,7 +105,7 @@
 
 ```mermaid
 flowchart LR
-  F["0 · 全景<br/>GLM-5.1"] --> D["1 · 数据<br/>Pipeline"]
+  F["0 · 全景<br/>GLM-5.2"] --> D["1 · 数据<br/>Pipeline"]
   D --> A["2 · 架构<br/>MoE-DSA"]
   A --> L["3 · 长上下文<br/>YaRN"]
   L --> S["4 · 微调<br/>SFT + Agent 轨迹"]
@@ -130,7 +130,7 @@ flowchart LR
 | # | 文件 | 主题 | 字数 |
 |---|---|---|---|
 | 路线图 | [ROADMAP.md](./ROADMAP.md) | 9 phase 总览与推进节奏 | 7k |
-| 0 | [phase0_foundation.md](./phase0_foundation.md) | GLM-5.1 架构 + 全景对比 + 现实目标设定 | 20k |
+| 0 | [phase0_foundation.md](./phase0_foundation.md) | GLM-5.2 架构 + 全景对比 + 现实目标设定 | 20k |
 | 1 | [phase1_data_pipeline.md](./phase1_data_pipeline.md) | 代码预训练数据 pipeline（含 datatrove 脚本） | 44k |
 | 2 | [phase2_pretraining.md](./phase2_pretraining.md) | MoE-DSA 架构、并行、torchtitan 配置 | 33k |
 | 3 | [phase3_midtraining_longcontext.md](./phase3_midtraining_longcontext.md) | Mid-training + YaRN/LongRoPE + repo packing | 31k |
@@ -163,7 +163,7 @@ flowchart LR
 
 | Phase | 核心发现 |
 |---|---|
-| 0 · 奠基 | **DSA = DeepSeek Sparse Attention**（Lightning Indexer + top-k KV，O(L²)→O(L·k)），GLM-5.1 从 DeepSeek-V3.2 集成；架构为 78 层 (3 dense + 75 MoE)、256 routed + 1 shared 专家、top-8 激活、MLA 压缩、200K 原生上下文 |
+| 0 · 奠基 | **DSA = DeepSeek Sparse Attention**（Lightning Indexer + top-k KV，O(L²)→O(L·k)），GLM-5.2 从 DeepSeek-V3.2 集成；架构为 78 层 (3 dense + 75 MoE)、256 routed + 1 shared 专家、top-8 激活、MLA 压缩、1M 原生上下文 |
 | 1 · 数据 | 整条 pipeline 里**去污染 + MinHash-LSH 去重**两步错了 loss 再漂亮都是幻觉——必须先验证对 HumanEval/MBPP/LiveCodeBench 零命中 |
 | 2 · 架构 | DSA 稀疏模式**不预先定死**，每个 query 动态挑 top-N KV；小规模复现首选 **torchtitan**（几千行 PyTorch 原生，MoE/EP/FP8 跟进最快） |
 | 3 · 长上下文 | **32K 用 YaRN，128K+ 用 LongRoPE**；repo-level packing 的灵魂是按 import 图做**拓扑排序**让 causal attention 能沿因果方向推理 |
@@ -181,9 +181,9 @@ flowchart LR
 
 ### 第 1-2 周：奠基 + 打通推理
 - 读 Phase 0 + Phase 2 的架构章节；补读 GLM-4.5 ARC + DeepSeek-V3.2 DSA 原始论文
-- 按 Phase 7 在 8×H100/H200 (或租) 上用 SGLang + FP8 部署 GLM-5.1
-- 消费级并行：1×4090 + KTransformers 跑 GLM-5.1 做本地 baseline
-- **产出**：一个稳定的本地 GLM-5.1 endpoint
+- 按 Phase 7 在 8×H100/H200 (或租) 上用 SGLang + FP8 部署 GLM-5.2
+- 消费级并行：1×4090 + KTransformers 跑 GLM-5.2 做本地 baseline
+- **产出**：一个稳定的本地 GLM-5.2 endpoint
 
 ### 第 3 周：数据 pipeline
 - 按 Phase 1 跑 datatrove 小 pipeline（10GB Python 子集），验证去污染 + MinHash
@@ -208,7 +208,7 @@ flowchart LR
 
 ## 黑盒清单（需要持续追踪）
 
-GLM-5.1 / GLM-4.5 ARC 未公开的细节：
+GLM-5.2 / GLM-4.5 ARC 未公开的细节：
 - Mid-training 具体 token 量与数据配比
 - DSA 的 Lightning Indexer 训练细节与推理 kernel
 - Agent RL 的 reward 设计
@@ -229,7 +229,7 @@ GLM-5.1 / GLM-4.5 ARC 未公开的细节：
 - DeepSeek-R1 (GRPO): [arxiv 2501.12948](https://arxiv.org/abs/2501.12948)
 
 **仓库**：
-- 权重: [zai-org/GLM-5.1](https://huggingface.co/zai-org/GLM-5.1)
+- 权重: [zai-org/GLM-5.2](https://huggingface.co/zai-org/GLM-5.2)
 - 代码: [zai-org/GLM-5](https://github.com/zai-org/GLM-5)
 - Blog: [z.ai/blog/glm-5.1](https://z.ai/blog/glm-5.1)
 
@@ -252,13 +252,13 @@ GLM-5.1 / GLM-4.5 ARC 未公开的细节：
 
 ## 动手练习
 
-1. 打开 GLM-5.1 在 HuggingFace 的模型卡，把 `config.json` 里的字段（hidden_size、num_experts、q_lora_rank、…）逐项对应到 phase0 §1.1 的参数表，找出至少一处与笔记口径不一致的字段并解释原因。
-   *提示*：直接浏览器看 `zai-org/GLM-5.1` 的 Files 页 + phase0_foundation.md §1。
-2. 在不下载权重的情况下，估算"BF16 加载 754B 模型 + 200K 上下文 KV cache（FP8）"在 8×H200 上单机够不够。给出每个 GPU 的字节预算。
+1. 打开 GLM-5.2 在 HuggingFace 的模型卡，把 `config.json` 里的字段（hidden_size、num_experts、q_lora_rank、…）逐项对应到 phase0 §1.1 的参数表，找出至少一处与笔记口径不一致的字段并解释原因。
+   *提示*：直接浏览器看 `zai-org/GLM-5.2` 的 Files 页 + phase0_foundation.md §1。
+2. 在不下载权重的情况下，估算"BF16 加载 744B 模型 + 1M 上下文 KV cache（FP8）"在 8×H200 上单机够不够。给出每个 GPU 的字节预算。
    *提示*：参考 phase7 §0 + phase_basics_training §序.9 显存账单。
 3. 按本 README 的 9 个 phase 一句话结论，给一位"只懂 CV 训练"的同事写 200 字以内的速通介绍，要求每个 phase 用 1 句话说"它在解决什么 CV 里没有的问题"。
    *提示*：phase_basics_training 序章是这个映射的源材料。
-4. 选 1 个开源仓库（OpenCoder / StarCoder2 / Qwen3-Coder 任选一个），把它和 GLM-5.1 在 9 个 phase 里的差异画成一张对照表（markdown 表格即可）。
+4. 选 1 个开源仓库（OpenCoder / StarCoder2 / Qwen3-Coder 任选一个），把它和 GLM-5.2 在 9 个 phase 里的差异画成一张对照表（markdown 表格即可）。
    *提示*：以 phase0 §4 的对比表为骨架扩展。
 5. 复现 README "全链路推进建议" 第 1 周计划：跑通一个 ~300M 参数 dense 小模型（不上 MoE）的预训练 + SFT + RLVR + 部署一条龙，所有阶段都用本仓库笔记里给出的工具链，最后跑一次 HumanEval+ 给出分数。
    *提示*：分别对应 phase1-phase7，每一步限制规模、不追指标，目标是"流程跑通"。

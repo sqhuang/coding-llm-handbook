@@ -1,5 +1,5 @@
 """
-Minimal coding agent talking to a local GLM-5.1 via OpenAI-compat API,
+Minimal coding agent talking to a local GLM-5.2 via OpenAI-compat API,
 running tools inside a Docker sandbox. Phase 8 §5 抽取脚本（< 300 行）。
 
 依赖：

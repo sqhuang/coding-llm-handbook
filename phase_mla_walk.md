@@ -55,7 +55,7 @@ flowchart LR
 # mla_minimal.py
 """
 Minimal MLA implementation for educational purposes.
-Faithful to DeepSeek-V2 paper (arxiv 2405.04434) and GLM-5.1 config.
+Faithful to DeepSeek-V2 paper (arxiv 2405.04434) and GLM-5.2 config.
 
 Tested: torch 2.5+, CPU or 1×GPU. Forward only. No KV cache reuse in this
 version (keep it simple); real inference engines (vLLM/SGLang) reuse c^KV.
@@ -85,7 +85,7 @@ def precompute_rope(seq_len, dim, base=10000.0, device="cpu"):
 
 class MLA(nn.Module):
     """
-    Hyperparameters chosen to match GLM-5.1 / DeepSeek-V3 style:
+    Hyperparameters chosen to match GLM-5.2 / DeepSeek-V3 style:
       d_model        : hidden size of the transformer
       num_heads      : attention heads (note: K/V are NOT per-head GQA-style;
                        they share a single latent that's projected per head)
@@ -192,7 +192,7 @@ $ python mla_minimal.py
 
 ## 3. 显存对比 · 为什么省 10×
 
-设 batch=1, seq=2048, num_heads=64, head_dim=128, num_layers=78（GLM-5.1 量级）, bf16 (2 bytes)。
+设 batch=1, seq=2048, num_heads=64, head_dim=128, num_layers=78（GLM-5.2 量级）, bf16 (2 bytes)。
 
 | Attention | KV cache 公式 | 数值 |
 |---|---|---|
@@ -212,7 +212,7 @@ $ python mla_minimal.py
 | 1 | 给 `c^KV` 直接 apply RoPE | **不能**。线性 up-project 会吸收旋转矩阵，相对位置编码失效。必须留单独 `rope_dim` 通道。 |
 | 2 | K^R 也按 num_heads 切（变成 `num_heads × rope_dim`） | K^R 是 **shared across heads**（只有 `rope_dim` 维），broadcast 到所有 head。这是它进一步省显存的关键。 |
 | 3 | 漏 `LayerNorm` on `c^Q` / `c^KV` | DeepSeek-V2 论文有，但很多复现版本漏。漏了训练不稳。 |
-| 4 | q_lora_rank 太小 (< 1024) | 短上下文不明显，长上下文 (>32K) needle 检索掉点。GLM-5.1 用 2048 是测过的。 |
+| 4 | q_lora_rank 太小 (< 1024) | 短上下文不明显，长上下文 (>32K) needle 检索掉点。GLM-5.2 用 2048 是测过的。 |
 | 5 | 推理时忘了 cache `c^KV` 而不是 `k_C / v_C` | 工程上要 cache **latent**，不是 up-projected K/V，否则白省。 |
 | 6 | 把 `nope_dim + rope_dim` 当 `head_dim` 算 RoPE | RoPE 只 apply 在 rope_dim 那一部分，不是整个 head_dim。 |
 
@@ -220,7 +220,7 @@ $ python mla_minimal.py
 
 ## 5. 和论文 / 实现版本的差异
 
-| 我这版（教学最小化） | 真实 GLM-5.1 / DeepSeek-V3 |
+| 我这版（教学最小化） | 真实 GLM-5.2 / DeepSeek-V3 |
 |---|---|
 | naive `q @ k^T` | FlashAttention-2 / FlashMLA kernel |
 | 不复用 KV cache（每步重算） | 推理时 cache `c^KV` + `k^R` 增量更新 |

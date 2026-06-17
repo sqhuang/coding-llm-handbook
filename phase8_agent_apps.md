@@ -3,19 +3,19 @@
 > 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
 
 > **⚡ 三句话要点**
-> 1. 两条路径：**A · 外壳路径**首选 **Roo Code + LiteLLM proxy**，把本地 GLM-5.1 包成 OpenAI-compat 即插即用；**B · 自建路径**走 ReAct + Docker + 6 工具的 300 行骨架。
+> 1. 两条路径：**A · 外壳路径**首选 **Roo Code + LiteLLM proxy**，把本地 GLM-5.2 包成 OpenAI-compat 即插即用；**B · 自建路径**走 ReAct + Docker + 6 工具的 300 行骨架。
 > 2. 自建 agent 的"三层栈"：**repo map**（tree-sitter 解析）→ **auto-compact**（长对话摘要）→ **Reflexion**（失败任务自我反思迭代），缺一就在大仓库上崩。
 > 3. **Sandbox 必上**：Docker / Firejail / E2B 三选一，绝不让模型直接对宿主 fs 操作——一次错误的 `rm` 就毁掉测试环境。
 
 > Tool use 主线 → [⚒ phase_tooluse](./phase_tooluse.md)：本章 §3 / §5 在 tool-use 全链路里是「schema 设计 + sandbox + ReAct + 300 行 agent」终点段。
 
-> 面向中国 AI 研究者的工程化笔记。目标：(A) 把本地部署的 GLM-5.1 接进成熟的 agent 外壳；(B) 从零构建一个 minimal coding agent，吃透其内部原理。
+> 面向中国 AI 研究者的工程化笔记。目标：(A) 把本地部署的 GLM-5.2 接进成熟的 agent 外壳；(B) 从零构建一个 minimal coding agent，吃透其内部原理。
 >
-> 本笔记假设你已完成 Phase 7（本地模型服务化），即已经把 GLM-5.1 / GLM-4.5-Air 以 OpenAI-compatible API 形式暴露在 `http://localhost:8000/v1`。
+> 本笔记假设你已完成 Phase 7（本地模型服务化），即已经把 GLM-5.2 / GLM-4.5-Air 以 OpenAI-compatible API 形式暴露在 `http://localhost:8000/v1`。
 
 > **读者画像** · 想把本地模型变成"真能用"的 coding agent 的应用工程师；或想审计 Cline/Roo/OpenHands 内部原理的架构师。
 > **前置知识** · phase7 已部署本地 OpenAI-compat endpoint；序.14 chat template + tool calling；phase4 §3 agent 轨迹数据。
-> **学完能做** · 路径 A 把 GLM-5.1 接进 Cline/Roo 跑真项目；路径 B 自己写 ≤ 500 行 minimal coding agent 并搭 RAG 索引大仓库。
+> **学完能做** · 路径 A 把 GLM-5.2 接进 Cline/Roo 跑真项目；路径 B 自己写 ≤ 500 行 minimal coding agent 并搭 RAG 索引大仓库。
 
 ---
 
@@ -44,7 +44,7 @@ flowchart TB
   UI["6. 交互层<br/>CLI / VSCode 插件 / Web"]
   PLAN["5. 规划层<br/>ReAct · Plan-Execute · Reflexion"]
   CTX["4. 上下文管理<br/>Repo Map · 历史压缩 · 记忆"]
-  MODEL["1. 模型层<br/>GLM-5.1 · Thinking + Tool Calling"]
+  MODEL["1. 模型层<br/>GLM-5.2 · Thinking + Tool Calling"]
   TOOL["3. 工具层<br/>bash · read · write · search · git"]
   SB["2. 沙箱层<br/>Docker · E2B · Firecracker"]
   FS["文件系统 + 网络 + 测试运行"]
@@ -78,7 +78,7 @@ flowchart TB
 │   Docker / E2B / Firecracker / native          │
 ├───────────────────────────────────────────────┤
 │ 1. 模型层 (Model)                               │
-│   GLM-5.1 / GLM-4.5-Air (via OpenAI API)        │
+│   GLM-5.2 / GLM-4.5-Air (via OpenAI API)        │
 └───────────────────────────────────────────────┘
 ```
 
@@ -86,7 +86,7 @@ flowchart TB
 
 **L1 模型层（Model）**
 - 能力点：code + reasoning + tool calling + long context。
-- GLM-5.1 支持 thinking tokens（`<think>…</think>`）和 OpenAI 风格的 `tools` 字段，这是接外壳的硬需求。
+- GLM-5.2 支持 thinking tokens（`<think>…</think>`）和 OpenAI 风格的 `tools` 字段，这是接外壳的硬需求。
 - 最小需求：`chat/completions` + `tools` + `stream` + `max_tokens ≥ 8k output`。
 
 **L2 沙箱层（Sandbox）**
@@ -139,7 +139,7 @@ flowchart TB
 
 ---
 
-## 2. 路径 A：把 GLM-5.1 接进现成外壳
+## 2. 路径 A：把 GLM-5.2 接进现成外壳
 
 ### 2.1 前置：确认你的 OpenAI-compat endpoint
 
@@ -148,7 +148,7 @@ flowchart TB
 ```bash
 # 例：vLLM
 python -m vllm.entrypoints.openai.api_server \
-  --model /models/GLM-5.1 \
+  --model /models/GLM-5.2 \
   --served-model-name glm-5.1 \
   --port 8000 \
   --enable-auto-tool-choice \
@@ -217,7 +217,7 @@ Kilo Code 是 Cline + Roo 的再 fork（2025 年），主打：
 
 ### 2.5 接入 Claude Code（通过自定义 endpoint）
 
-官方 Claude Code 默认走 Anthropic API。要把它指到 GLM-5.1，有两条路：
+官方 Claude Code 默认走 Anthropic API。要把它指到 GLM-5.2，有两条路：
 
 **方案一：LiteLLM proxy（推荐）**
 LiteLLM 能把 Anthropic `/v1/messages` 协议转成 OpenAI 协议：
@@ -246,7 +246,7 @@ claude
 **方案二：claude-code-router / claude-relay 类开源工具**
 社区有多个 relay（`musistudio/claude-code-router`、`claude-bridge` 等），做法类似但对模型切换更友好。
 
-**注意**：Claude Code 的 prompt 严重依赖 Claude 的 tool calling 格式（尤其 `str_replace_editor` 的 diff 风格）。GLM-5.1 能 follow，但成功率比 Claude 低 10-20 个百分点；重任务建议用 Cline/Roo 这种为任意模型设计的外壳。
+**注意**：Claude Code 的 prompt 严重依赖 Claude 的 tool calling 格式（尤其 `str_replace_editor` 的 diff 风格）。GLM-5.2 能 follow，但成功率比 Claude 低 10-20 个百分点；重任务建议用 Cline/Roo 这种为任意模型设计的外壳。
 
 ### 2.6 各外壳能力差异对比
 
@@ -263,7 +263,7 @@ claude
 | 沙箱 | 权限提示 | 权限提示 | 细粒度 auto-approve | 同 Roo | 本地 (git 保护) |
 | 适合谁 | 想要即开即用 | 通用首选 | 爱折腾工作流 | 前两者的平替 | 对 git workflow 洁癖 |
 
-**给这位研究者的推荐**：**路径 A 用 Roo Code + LiteLLM + GLM-5.1**。理由：研究者通常要对比不同模型 / 切换 mode，Roo 的 custom modes + mcp 支持让实验成本最低；又不像 Kilo 那样迭代还不稳定。
+**给这位研究者的推荐**：**路径 A 用 Roo Code + LiteLLM + GLM-5.2**。理由：研究者通常要对比不同模型 / 切换 mode，Roo 的 custom modes + mcp 支持让实验成本最低；又不像 Kilo 那样迭代还不稳定。
 
 ---
 
@@ -612,14 +612,14 @@ Reflexion 原论文在 HumanEval 上把 GPT-4 pass@1 从 80% 推到 91%，对固
 
 OpenAI 协议在一条 assistant message 里可返回多个 tool_calls（并行），也可以一个一个来。
 
-- GLM-5.1 支持并行 tool calling。
+- GLM-5.2 支持并行 tool calling。
 - 何时用并行：`read_file(a)` + `read_file(b)` + `grep(...)` 明显独立时。
 - 何时用串行：`write_file` 之后的 `run_tests`，必须等前者完成。
 - 实现：每轮收到 `tool_calls: [t1, t2, t3]` 就 `asyncio.gather` 三个 runner，然后把三个 `tool` 消息一起附加回 `messages`。
 
 ### 4.3 Thinking tokens 怎么用
 
-GLM-5.1 的 reasoning mode 会吐 `<think>…</think>`，通过 `reasoning_content` 字段返回。
+GLM-5.2 的 reasoning mode 会吐 `<think>…</think>`，通过 `reasoning_content` 字段返回。
 
 - **要不要给 agent 用 thinking**：复杂规划（planning 阶段、Reflexion 阶段）开；单纯调工具（工具选择）关 —— 否则每轮多 1-3k token，又贵又慢。
 - **写法**：`extra_body={"chat_template_kwargs": {"enable_thinking": true}}`（vLLM + GLM 的约定），或直接在 system prompt 里写 "Use <think> tags to plan first"。
@@ -734,7 +734,7 @@ SWE-Bench 是现在事实上的 coding agent 标尺。Lite 子集是 300 个真�
 
 ## 8. 给这位研究者的行动清单（收敛）
 
-1. **周 1**：走路径 A。`vLLM + GLM-5.1 + Roo Code (VSCode) + LiteLLM`（要接 Claude Code 时用）。先让自己每天用它写代码，建立 "什么能干、什么不能干" 的直觉。
+1. **周 1**：走路径 A。`vLLM + GLM-5.2 + Roo Code (VSCode) + LiteLLM`（要接 Claude Code 时用）。先让自己每天用它写代码，建立 "什么能干、什么不能干" 的直觉。
 2. **周 2**：照抄第 5 节的 300 行，跑通 demo。换一个真实小 repo（比如 `requests` 的 mini fork）做手动任务。
 3. **周 3**：加 repo map（tree-sitter）+ auto-compact，跑 SWE-Bench Lite 前 20 条，分析失败模式。
 4. **周 4+**：按失败模式的长尾，选择性加 Reflexion、plan-execute、LSP，并开始写你自己的 paper-ready 对比实验。
@@ -804,7 +804,7 @@ flowchart LR
     RET --> TOP50["top-50 候选"]
     TOP50 --> RR["bge-reranker-v2"]
     RR --> TOP5["top-5 精选"]
-    TOP5 --> GEN["GLM-5.1 生成<br/>+ 源引用归因"]
+    TOP5 --> GEN["GLM-5.2 生成<br/>+ 源引用归因"]
     GEN --> ANS["答案"]
   end
   VDB -.检索.-> RET
@@ -845,7 +845,7 @@ flowchart LR
 │                                   prompt 拼接（+ cite）      │
 │                                               │              │
 │                                               ▼              │
-│                                         GLM-5.1 / Claude     │
+│                                         GLM-5.2 / Claude     │
 │                                               │              │
 │                                               ▼              │
 │                                    带引用的回答              │
@@ -1041,7 +1041,7 @@ prompt = f"context: {docs}\nquery: {q}"
 问题：{user_query}
 ```
 
-**长上下文模型（GLM-5.1 200K / Claude 1M）**的机会：
+**长上下文模型（GLM-5.2 1M / Claude 1M）**的机会：
 - 可以把 top-20 而不是 top-5 塞进去，让模型自己筛。
 - 可以顺便附上 **repo skeleton**（tree-sitter 生成的 repo map，`aider` 风格）给模型全局观。
 - 但注意：即使 200K 窗口，超过 32K 之后精度也会下降（lost in the middle），关键 snippet 放最前或最后。
@@ -1270,7 +1270,7 @@ embedding 模型半年会出新版（bge-code-v1 → v1.5 → v2），benchmark 
 | 周 | 动作 |
 |----|------|
 | 第 1-3 天 | 选 10 个代表性 repo（~5 万文件），跑 tree-sitter 切块 + bge-code-v1 embed + LanceDB 存。用 50 条手写 query 测 Recall@5。 |
-| 第 4-7 天 | 迁到 Qdrant，加 BM25 混合搜索，加 team/lang metadata filter，接 GLM-5.1 生成答案带 citation。 |
+| 第 4-7 天 | 迁到 Qdrant，加 BM25 混合搜索，加 team/lang metadata filter，接 GLM-5.2 生成答案带 citation。 |
 | 第 2 周 | 加 bge-reranker-v2、HyDE query 改写、git webhook 增量更新；搭评测集 + 👍👎 反馈闭环；上 IDE 插件或 Slack bot 给小范围用户试用。 |
 | 第 3-4 周 | 根据负反馈优化（切块策略、prompt 模板、reranker 阈值），规划全公司铺开 + 权限合规审核。 |
 
@@ -1278,7 +1278,7 @@ embedding 模型半年会出新版（bge-code-v1 → v1.5 → v2），benchmark 
 
 ---
 
-*本笔记配套：`phase7_model_serving.md`（上游：把 GLM-5.1 服务化）、`phase9_evaluation.md`（下游：SWE-Bench / LiveCodeBench / HumanEvalPack 系统评测）。*
+*本笔记配套：`phase7_model_serving.md`（上游：把 GLM-5.2 服务化）、`phase9_evaluation.md`（下游：SWE-Bench / LiveCodeBench / HumanEvalPack 系统评测）。*
 
 ---
 
@@ -1313,11 +1313,11 @@ embedding 模型半年会出新版（bge-code-v1 → v1.5 → v2），benchmark 
 
 1. 浏览 Cline / Roo Code / Aider / OpenHands 四个开源 agent 仓库，对照 §1 的 6 层架构图，回答：每个项目把"规划层"放在 prompt 里还是放在外部 controller 里？谁的 tool schema 最简洁？
    *提示*：直接读各自 README + 主入口源文件即可。
-2. 用 LiteLLM proxy 把你 phase7 部署的 GLM-5.1 endpoint 包装成"伪装成 Anthropic Claude"的 API，然后在 Cline 里把它配置成 model，跑通 "在一个 ≤ 500 行的 Python 项目里加一个新功能" 的小任务。
+2. 用 LiteLLM proxy 把你 phase7 部署的 GLM-5.2 endpoint 包装成"伪装成 Anthropic Claude"的 API，然后在 Cline 里把它配置成 model，跑通 "在一个 ≤ 500 行的 Python 项目里加一个新功能" 的小任务。
    *提示*：§2 路径 A 章节 + LiteLLM 文档。注意 system prompt 注入和 tool schema 转换。
 3. 实现 §3 的 tool 层：用纯 Python 写 6 个 tool（bash, read_file, write_file, search_files, run_tests, git_diff），每个 tool 都用 docker sandbox 隔离执行，给出完整 OpenAI-style schema。要求 tool 互相不冲突、错误能正确返回给模型。
    *提示*：§3.3 sandbox 章节 + §3.5 tool schema 设计。Docker exec 比 E2B 更适合本地。
 4. 抄 §3 的 300 行 minimal agent 骨架，搭一个 ReAct loop：模型 → tool_call → observation → 模型 → … 跑一个真实的 SWE-Bench Lite 题，记录 token 消耗、轮次、是否解决。要求引入 §4 的 auto-compact（超过 ctx 80% 就摘要历史）。
    *提示*：§4 上下文管理 + §5 Reflexion；first run 不要追指标，先跑通。
-5. **完整 capstone**：为一个 ≥ 50 万文件的真实大型仓库（公司 monorepo 或开源大项目如 `kubernetes/kubernetes`）搭一套完整 Code RAG 系统——tree-sitter AST 切块 + bge-code-v1 embedding + Qdrant 向量库 + BM25 hybrid search + bge-reranker-v2 + GLM-5.1 生成带 citation 的答案。要求：webhook 增量更新、IDE 插件入口、👍/👎 反馈闭环、降级策略。最后用 §10.16 的 50 条手写 query 评测 Recall@5 ≥ 80%。
+5. **完整 capstone**：为一个 ≥ 50 万文件的真实大型仓库（公司 monorepo 或开源大项目如 `kubernetes/kubernetes`）搭一套完整 Code RAG 系统——tree-sitter AST 切块 + bge-code-v1 embedding + Qdrant 向量库 + BM25 hybrid search + bge-reranker-v2 + GLM-5.2 生成带 citation 的答案。要求：webhook 增量更新、IDE 插件入口、👍/👎 反馈闭环、降级策略。最后用 §10.16 的 50 条手写 query 评测 Recall@5 ≥ 80%。
    *提示*：§10 整章是这个项目的逐步施工图；§10.13 评测集 + §10.15 运维章节是上线前必读。这是 Phase 8 的"毕业项目"，做完你就有了一套可落地的企业级 coding agent。

@@ -1,6 +1,6 @@
 # 📋 TL;DR · 全书 15 分钟速读卡
 
-> 📅 主线快照：2026-05-28 · 上次核对：2026-05-28
+> 📅 主线快照：2026-06-17 · 上次核对：2026-06-17
 
 > **怎么用这一页**：把全书 13 个 phase 的 ⚡ 三句话要点 + 📌 章末检查关键结论抽到一处。**适合扫一遍判断"我该不该认真读这本"**，或读完后当随身速查卡。每章带跳转链接。
 
@@ -17,12 +17,12 @@
 
 ---
 
-## 0 · [phase0_foundation](./phase0_foundation.md) · GLM-5.1 全景
+## 0 · [phase0_foundation](./phase0_foundation.md) · GLM-5.2 全景
 
 **⚡ 要点**
-1. GLM-5.1 = 754B 总 / 40B 激活 / 78 层 (3 dense + 75 MoE) / 256+1 expert / MLA q_lora 2048·kv_lora 512 / 200K 原生 / MIT。
-2. DSA = **DeepSeek Sparse Attention**（Lightning Indexer + top-k KV），把 attention 从 O(L²) 降到 O(L·k)。
-3. 训练栈沿用 GLM-4.5 ARC：23T 双段 pretrain + 7T 代码/推理上采样 + mid-train 128K + slime 异步 RL。优化器 AdamW → Muon。
+1. GLM-5.2 = 744B 总 / 40B 激活 / `glm_moe_dsa` / **1M 原生上下文**（`glm-5.2[1m]`，输出 131,072）/ MIT，2026-06-13 发布。结构沿用 5.1 谱系（78 层 / 256+1 expert / MLA），官方未单独披露。
+2. DSA = **DeepSeek Sparse Attention**（Lightning Indexer + top-k KV）把 attention 从 O(L²) 降到 O(L·k)；5.2 新增 **IndexShare**（IndexCache，arXiv:2603.12201）每 4 层共享 indexer，砍 75% indexer 计算。
+3. 训练栈沿用 GLM-4.5 ARC，数据 23T→**28.5T**，mid-train 长上下文 + slime 异步 RL；新增 high/max 两档推理。据报道全程华为昇腾（未独立核实）。
 
 **📌 带走**：top-8 routing + aux-loss-free 防 expert collapse。
 

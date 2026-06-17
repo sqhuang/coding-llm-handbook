@@ -62,13 +62,13 @@ $$
 c_t^{KV} = W^{DKV} h_t, \quad k_t^C = W^{UK} c_t^{KV}, \quad v_t^C = W^{UV} c_t^{KV}
 $$
 
-KV cache 只存 $c_t^{KV} \in \mathbb{R}^{r_{kv}}$（GLM-5.1: $r_{kv}=512$），推理时再 up-project。Q 也单独压一次到 $r_q$（GLM-5.1: $r_q=2048$）。
+KV cache 只存 $c_t^{KV} \in \mathbb{R}^{r_{kv}}$（GLM-5.2: $r_{kv}=512$），推理时再 up-project。Q 也单独压一次到 $r_q$（GLM-5.2: $r_q=2048$）。
 
 - **直觉**：把 H 个头共享的低秩信息显式分解出来，KV cache 缩 ~10×（vs MHA），同时不像 MQA 那样掉精度。
 - **超参**：q_lora_rank 通常 d/2-d/4；kv_lora_rank 通常 d/8-d/16；RoPE 在 latent 还是 expanded 上施加是一个工程选择（GLM/DeepSeek 在 latent + extra rotary dim 上）。
 - **用到**：phase2 §1.5、phase0 §1。
 
-### A5 · DSA · DeepSeek Sparse Attention（V3.2 / GLM-5.1，2025-2026）
+### A5 · DSA · DeepSeek Sparse Attention（V3.2 / GLM-5.2，2025-2026）
 
 两阶段：
 
@@ -80,7 +80,7 @@ $$
 $$
 
 - **直觉**：Lightning Indexer（轻量小网络）先给每个 query 挑 top-k 个 KV 位置，主 attention 只在 top-k 上算。把 attention 从 O(L²) 降到 O(L·k_top + L·indexer)。
-- **超参**：`k_top = 64-256`（GLM-5.1 推测） · indexer 是 4-8 head 的 mini-attention。
+- **超参**：`k_top = 64-256`（GLM-5.2 推测） · indexer 是 4-8 head 的 mini-attention。
 - **用到**：phase2 §1.4、phase0 §1.2。
 
 ---
@@ -116,7 +116,7 @@ $$
 - **超参**：FIM 占比 50%（OpenAI / StarCoder），split 点随机 1/3 ~ 2/3。
 - **用到**：phase2 §3.2。
 
-### B3 · MTP · Multi-Token Prediction（DeepSeek-V3 / GLM-5.1）
+### B3 · MTP · Multi-Token Prediction（DeepSeek-V3 / GLM-5.2）
 
 主头预测 $x_{t+1}$，多个 MTP head 预测 $x_{t+2}, x_{t+3}, ...$：
 
@@ -258,7 +258,7 @@ $$
 - 公式 + 超参缺一不可——`clip=0.2` / `KL β=0.04` / `G=8` 是 GRPO 默认值，**直接抄不会错**。
 - KaTeX 渲染依赖网络——离线 PDF 会渲染失败，要用 print stylesheet 的备用方案。
 - **Muon vs AdamW** 在 lr 量级上差 ~3×，换优化器忘换 lr 是常见崩溃源。
-- **MLA 的 RoPE 应用位置**（latent vs expanded）是论文不会写得很清楚的工程细节——参考 DeepSeek-V3 / GLM-5.1 的开源 ref impl。
+- **MLA 的 RoPE 应用位置**（latent vs expanded）是论文不会写得很清楚的工程细节——参考 DeepSeek-V3 / GLM-5.2 的开源 ref impl。
 
 **自检 3 题**
 1. 默写 GRPO 的 advantage 公式 + 说出 `G=8` vs `G=4` 的区别。

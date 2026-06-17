@@ -23,7 +23,7 @@
 
 | 不变的事 | CV & LLM 共享 |
 |---|---|
-| 模型是 **参数 θ** 的集合 | ResNet-50 有 2500 万；GLM-5.1 有 7540 亿 |
+| 模型是 **参数 θ** 的集合 | ResNet-50 有 2500 万；GLM-5.2 有 7440 亿 |
 | 训练目标是 **最小化 loss** | CrossEntropy、MSE、对比 loss——都是标量函数 |
 | **梯度下降 θ ← θ - η∇L** | AdamW 仍是主流优化器 |
 | 训练看数据的"步"叫 **step** | 一个 step：前向 → loss → 反传 → 更新 |
@@ -365,7 +365,7 @@ optimizer.step()          # 一次性更新
 
 ## 序.10 速查：CV → LLM 训练差异三级对照
 
-| 维度 | CV 分类（ImageNet） | LLM 预训练（The Stack） | Code LLM 预训练（GLM-5.1） |
+| 维度 | CV 分类（ImageNet） | LLM 预训练（The Stack） | Code LLM 预训练（GLM-5.2） |
 |---|---|---|---|
 | 样本形态 | `(3, 224, 224)` 浮点 | `(L,)` int 变长 | 同左 + repo-aware packing |
 | 监督信号 | 1 label / 图 | L-1 labels / 序列 | 同左 + FIM 打乱 |
@@ -373,7 +373,7 @@ optimizer.step()          # 一次性更新
 | 典型样本数 | 1.2M | 数十亿文档 | 同左 + 跨文件长序列 |
 | 训练轮数 | 90-300 epoch | 0.5-2 epoch | 0.5-1 epoch |
 | 单样本尺寸 | 固定 | 变长（pad / pack） | 变长 |
-| 模型规模 | ~25M (ResNet-50) | 7B - 754B | 同右 |
+| 模型规模 | ~25M (ResNet-50) | 7B - 744B | 同右 |
 | 单卡能训动 | ✓ | ≥1B 不行 | ≥1B 不行 |
 | 显存主要花在 | 参数 + activation | **optimizer state 占大头** | 同左 + EP/TP 通信 buffer |
 | 并行方式 | DDP | DDP + FSDP / ZeRO | + TP + PP + EP + CP |
@@ -432,7 +432,7 @@ flowchart LR
 | **MHA** (Multi-Head Attention) | Q/K/V 都切成 h_head 份 | 0 | 早期 GPT / LLaMA-1 |
 | **MQA** (Multi-Query) | K/V 只留 1 头，所有 Q head 共享 | 大 | PaLM、Falcon |
 | **GQA** (Grouped-Query) | K/V 切 g 组（g < h_head），每组共享 | 中 | LLaMA-2/3、Qwen |
-| **MLA** (Multi-head **Latent** Attention) | 把 K/V 先压缩到低维 latent，用时再投回来 | 极大（~10×） | **DeepSeek-V2/V3、GLM-5.1** |
+| **MLA** (Multi-head **Latent** Attention) | 把 K/V 先压缩到低维 latent，用时再投回来 | 极大（~10×） | **DeepSeek-V2/V3、GLM-5.2** |
 
 ```mermaid
 flowchart TB
@@ -458,7 +458,7 @@ KV cache 是推理时的老大难（序.16 会展开），而 K / V 的存储量
 
 ## 序.12 Scaling Law：模型多大、数据多少、算力多少
 
-> 为后面 **Phase 0（为什么 754B 不是随便拍的）**、**Phase 2（为什么你 1.5B 就够起步）** 铺垫。
+> 为后面 **Phase 0（为什么 744B 不是随便拍的）**、**Phase 2（为什么你 1.5B 就够起步）** 铺垫。
 
 你 CV 时代可能从没算过"训 ResNet-50 要多少 FLOPs"——有预设配方。LLM 里算力就是钱，必须会估。
 
@@ -474,7 +474,7 @@ N ≈ 12 × n_layers × d²
 
 **例子**：
 - LLaMA-2-7B：n_layers=32, d=4096 → `12 × 32 × 4096² ≈ 6.4B`（加 embedding 正好 7B）
-- GLM-5.1：78 层 / d≈6144 / MoE 激活 ~30B（**MoE 的总参要单独算，后面 Phase 2 细讲**）
+- GLM-5.2：78 层 / d≈6144 / MoE 激活 ~30B（**MoE 的总参要单独算，后面 Phase 2 细讲**）
 
 ### 序.12.2 训练 FLOPs 速算
 
@@ -501,7 +501,7 @@ N ≈ 12 × n_layers × d²
 | 1B | 20B tokens | 很多超到 500B（小模型塞更多数据反而性价比高） |
 | 7B | 140B | 实际 LLaMA-3 用 15T |
 | 70B | 1.4T | LLaMA-3-70B 用 15T |
-| 754B (GLM-5.1) | 15T | 猜测差不多这个量级 |
+| 744B (GLM-5.2) | 15T | 猜测差不多这个量级 |
 
 **工程意义**：如果你只有 16 卡 A100 训 1 个月（约 11000 A100·小时），能做到的上限大约是 1B / 20B tokens 这个级别的模型——Phase 0 和 Phase 2 的"小规模复现"建议就是从这里推出来的。
 
@@ -616,7 +616,7 @@ def fib(n):
 def fib(n): ...
 ```
 
-功能一样，只是 token 的字面形式不同。**实际项目里，你必须用模型自带的 tokenizer `apply_chat_template()` 生成**，不要手写——GLM-5.1 的 template 里还有推理相关的 `<think>` / `</think>` token。
+功能一样，只是 token 的字面形式不同。**实际项目里，你必须用模型自带的 tokenizer `apply_chat_template()` 生成**，不要手写——GLM-5.2 的 template 里还有推理相关的 `<think>` / `</think>` token。
 
 ### 序.14.3 Tool Calling Token（Agent 场景）
 
@@ -721,7 +721,7 @@ flowchart TB
 
 **组合公式**：`总卡数 = DP × TP × PP × EP`
 
-典型 GLM-5.1 部署可能是 `DP=2 × TP=4 × EP=8 = 64 卡`。Phase 2 会给具体配方。
+典型 GLM-5.2 部署可能是 `DP=2 × TP=4 × EP=8 = 64 卡`。Phase 2 会给具体配方。
 
 ### 序.15.3 FSDP / ZeRO：懒人版"分片 DP"
 
@@ -904,7 +904,7 @@ Phase 2 训小模型、Phase 3 扩长上下文都要开。
 
 > ⚠️ **常见坑** · 不开 packing 直接按 batch 训短序列——80% 算力浪费在 padding 上，且 attention 在 pad 位置仍然计算（即使被 mask）。packing + position_ids reset + FlashAttention 是 LLM 训练的"地板组合"，缺一项吞吐就掉一档。
 
-**下一步** → 进入 [phase0 GLM-5.1 全景](./phase0_foundation.md) 把基础概念套到一个真模型上。术语速查 → [▣ 索引](./phase_glossary.md)。
+**下一步** → 进入 [phase0 GLM-5.2 全景](./phase0_foundation.md) 把基础概念套到一个真模型上。术语速查 → [▣ 索引](./phase_glossary.md)。
 
 ---
 

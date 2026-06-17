@@ -1,6 +1,6 @@
 # 开源 Coding LLM 全链路研究路线图
 
-> 主线模型：**GLM-5.1** (Z.ai, 2026-04-07, 754B MoE-DSA, MIT)
+> 主线模型：**GLM-5.2** (Z.ai, 2026-06-13, 744B MoE-DSA, 1M 上下文, MIT)
 > 辅线参照：DeepSeek-Coder-V2、Qwen3-Coder、OpenCoder、StarCoder2
 > 目标：(1) 理解全栈 → (2) 小规模复现训练 → (3) 搭建自己的 coding agent 应用
 
@@ -15,12 +15,12 @@
 | 资料 | 链接 | 用途 |
 |---|---|---|
 | GLM-4.5 ARC 技术报告 | arxiv 2508.06471 | 训练方法论主源 |
-| GLM-5.1 权重 | hf: `zai-org/GLM-5.1` | 推理/微调 |
+| GLM-5.2 权重 | hf: `zai-org/GLM-5.2` | 推理/微调 |
 | GLM 官方代码 | github.com/zai-org/GLM-5 | 推理示例 |
 | DeepSeek-Coder-V2 论文 | arxiv 2406.11931 | 数据配比/训练最详尽 |
 | OpenCoder 论文 | arxiv 2411.04905 | 数据处理 pipeline 完全开源 |
 | StarCoder2 + The Stack v2 | arxiv 2402.19173 | 数据集基准 |
-| SGLang / vLLM GLM-5.1 recipes | 官方 cookbook | 部署 |
+| SGLang / vLLM GLM-5.2 recipes | 官方 cookbook | 部署 |
 
 ---
 
@@ -31,7 +31,7 @@
 **产出物**：一份 `phase0_notes.md`，内容包括：
 - GLM-4.5 ARC 的训练三段论 (pretrain → mid-train → post-train) 细节
 - GLM-MoE-DSA 是什么、相对普通 MoE 的差异
-- DeepSeek-Coder-V2 vs. Qwen3-Coder vs. GLM-5.1 的关键差异对比表
+- DeepSeek-Coder-V2 vs. Qwen3-Coder vs. GLM-5.2 的关键差异对比表
 - 自己训一个 coding LLM 的最小闭环清单
 
 ---
@@ -75,7 +75,7 @@
 ## Phase 3 — 中期训练 & 长上下文
 
 - **Mid-training**：退火阶段切换到高质量子集 + 数学推理数据 + 代码执行轨迹
-- **长上下文**：GLM-5.1 是 200K 级别。方法栈：RoPE base 调大 / YaRN / position interpolation + 长文本 SFT 数据
+- **长上下文**：GLM-5.2 是 1M 级别。方法栈：RoPE base 调大 / YaRN / position interpolation + 长文本 SFT 数据
 - **仓库级训练**：按 import 图 / 文件依赖排序的 repo packing（关键！普通随机 shuffle 学不到跨文件推理）
 
 ---
@@ -116,7 +116,7 @@
 - **MultiPL-E**：多语言版 HumanEval
 - **CRUXEval**：代码执行理解
 
-**动手任务**：搭建本地 evalplus + SWE-Bench harness，对 GLM-4.5-Air、GLM-5.1 (API) 跑一遍，建立你自己的 baseline。
+**动手任务**：搭建本地 evalplus + SWE-Bench harness，对 GLM-4.5-Air、GLM-5.2 (API) 跑一遍，建立你自己的 baseline。
 
 ---
 
@@ -133,7 +133,7 @@
 
 **动手任务**：
 - 用 SGLang 部署 GLM-4.5-Air (AWQ/FP8 量化)，测 throughput 和 latency
-- 用 KTransformers 在消费级硬件上跑 GLM-5.1 (CPU+GPU 混合)
+- 用 KTransformers 在消费级硬件上跑 GLM-5.2 (CPU+GPU 混合)
 
 ---
 
@@ -144,7 +144,7 @@
 ### A. 接入现成 agent 外壳
 - Claude Code（通过自定义 model endpoint）
 - Cline / Roo Code / Kilo Code（VSCode 插件，都支持 OpenAI-compat）
-- 把你本地部署的 GLM-5.1 或 GLM-4.5-Air 包装成 OpenAI API 接进去
+- 把你本地部署的 GLM-5.2 或 GLM-4.5-Air 包装成 OpenAI API 接进去
 
 ### B. 自建 agent（学习路径）
 关键组件：
@@ -155,7 +155,7 @@
 5. **长对话管理**：摘要压缩、记忆、工作区状态
 
 **动手任务**：
-- 路径 A：把 GLM-5.1 (API) 接进 Cline，跑一个真实小项目
+- 路径 A：把 GLM-5.2 (API) 接进 Cline，跑一个真实小项目
 - 路径 B：写一个 <500 行 Python 的 minimal coding agent（参考 smol-developer / mini-devin）
 
 ---

@@ -11,7 +11,7 @@
 
 > 适用对象：中文 AI 研究者 / 想复现 coding LLM RL pipeline 的工程师
 > 时间戳：2026-04
-> 主线模型：GLM-5.1 / GLM-4.5 ARC
+> 主线模型：GLM-5.2 / GLM-4.5 ARC
 > 本阶段目标：把"一条 RL 路径"从**奖励信号设计 → 算法 → 分布式系统 → 工程代码**打通，并在 Phase 4 的 LoRA SFT 产物上跑一次 GRPO 小实验
 
 > **读者画像** · 跑过 SFT、想给模型加 RL 但被 PPO 工程门槛劝退的工程师；或想搭 sandbox + RLVR pipeline 的训练 lead。

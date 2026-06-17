@@ -8,7 +8,7 @@
 
 ## 1. 架构类（Architecture）
 
-> 这一类的核心问题是：在 100B–1T 量级下，如何同时拿到"高质量稠密参数 + 可扩展的稀疏激活 + 长上下文 + 低 KV 显存"。主线沿着 GLM-4.5 / GLM-5、DeepSeek-V2/V3/V3.2、Qwen3、Mixtral、LLaMA 一路演进，关键词是 **MoE（细粒度 + 共享专家）、MLA（隐空间 KV 压缩）、DSA（稀疏注意力 + Lightning Indexer）、MTP（多 token 预测）、YaRN/LongRoPE（长上下文外推）**。读这一组主要是为了搞清楚"为什么 GLM-5.1 长这样"。
+> 这一类的核心问题是：在 100B–1T 量级下，如何同时拿到"高质量稠密参数 + 可扩展的稀疏激活 + 长上下文 + 低 KV 显存"。主线沿着 GLM-4.5 / GLM-5、DeepSeek-V2/V3/V3.2、Qwen3、Mixtral、LLaMA 一路演进，关键词是 **MoE（细粒度 + 共享专家）、MLA（隐空间 KV 压缩）、DSA（稀疏注意力 + Lightning Indexer）、MTP（多 token 预测）、YaRN/LongRoPE（长上下文外推）**。读这一组主要是为了搞清楚"为什么 GLM-5.2 长这样"。
 
 - **GLM-4.5 ARC** · *GLM-4.5: Agentic, Reasoning, Coding (ARC) Foundation Models* · arXiv:2508.06471 · [链接](https://arxiv.org/abs/2508.06471)
 - **GLM-5 方法论** · *GLM-5: from Vibe Coding to Agentic Engineering* · arXiv:2602.15763 · [链接](https://arxiv.org/abs/2602.15763)
@@ -106,7 +106,7 @@
 
 ## 5. 推理与部署类（Serving, Quantization, Speculative Decoding）
 
-> 这一类的核心问题是：训完一个 754B MoE-DSA，怎么把它真正"跑起来"——KV 怎么排（PagedAttention / RadixAttention）、权重怎么压（AWQ / GPTQ / SmoothQuant）、token 怎么投机（Medusa / EAGLE / MTP）、kernel 怎么 fuse（DeepGEMM / TransformerEngine）。SGLang、vLLM、KTransformers、xLLM 是当下的主流引擎栈。
+> 这一类的核心问题是：训完一个 744B MoE-DSA，怎么把它真正"跑起来"——KV 怎么排（PagedAttention / RadixAttention）、权重怎么压（AWQ / GPTQ / SmoothQuant）、token 怎么投机（Medusa / EAGLE / MTP）、kernel 怎么 fuse（DeepGEMM / TransformerEngine）。SGLang、vLLM、KTransformers、xLLM 是当下的主流引擎栈。
 
 - **PagedAttention (vLLM)** · *Efficient Memory Management for Large Language Model Serving with PagedAttention* · arXiv:2309.06180 · [链接](https://arxiv.org/abs/2309.06180)
 - **RadixAttention (SGLang)** · *Efficiently Programming Large Language Models using SGLang* · arXiv:2312.07104 · [链接](https://arxiv.org/abs/2312.07104)
@@ -122,7 +122,7 @@
 - **DeepGEMM** · DeepSeek 自研 FP8 MoE GEMM kernel，配 V3 用 · [GitHub](https://github.com/deepseek-ai/DeepGEMM)
 - **SGLang Cookbook (GLM)** · GLM-5 官方 SGLang 部署 cookbook，含 B200 / MI300 变体 · [GitHub](https://github.com/sgl-project/sgl-cookbook)
 - **vLLM Recipes (GLM)** · vLLM 官方 GLM 系列部署食谱 · [GitHub](https://github.com/vllm-project/recipes)
-- **KTransformers** · CPU + GPU 异构推理框架，含 GLM-5.1 kt-kernel 教程 · [GitHub](https://github.com/kvcache-ai/ktransformers)
+- **KTransformers** · CPU + GPU 异构推理框架，含 GLM-5.2 kt-kernel 教程 · [GitHub](https://github.com/kvcache-ai/ktransformers)
 - **xLLM (JD)** · 京东开源高性能推理框架 · [GitHub](https://github.com/jd-opensource/xllm)
 
 ---
@@ -144,7 +144,7 @@
 - **Cline** · 开源 VS Code 编程 agent，原 Claude Dev · [GitHub](https://github.com/cline/cline)
 - **Roo Code** · Cline 分叉，主打多模型与多 mode 编排 · [GitHub](https://github.com/RooCodeInc/Roo-Code)
 - **Kilo Code** · Roo / Cline 衍生，融合多家 IDE agent 特性 · [GitHub](https://github.com/Kilo-Org/kilocode)
-- **GLM-5 (zai-org)** · 智谱 GLM-5 / GLM-5.1 官方仓库 · [GitHub](https://github.com/zai-org/GLM-5)
+- **GLM-5 (zai-org)** · 智谱 GLM-5 / GLM-5.2 官方仓库 · [GitHub](https://github.com/zai-org/GLM-5)
 - **smol-developer** · 单文件 prompt-only 编程 agent 教学项目 · [GitHub](https://github.com/smol-ai/developer)
 - **tree-sitter** · 增量解析器框架，AST 级 chunk / RAG 切片必备 · [Web](https://tree-sitter.github.io)
 - **Firecracker** · AWS 出品的轻量 microVM，agent sandbox 主流方案 · [Web](https://firecracker-microvm.github.io)

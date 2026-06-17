@@ -7,12 +7,12 @@
 > 2. 小规模复现首选 **torchtitan**（几千行 PyTorch 原生，MoE/EP/FP8 跟进最快），8×H100 训 1B 量级 MoE 目标 MFU ≥ 35%（MFU = Model FLOPs Utilization · 实际算力 / 理论峰值）。
 > 3. 2025 下半年 MoE "新四样"：**Muon** 替代 AdamW、**aux-loss-free routing**（bias 调节专家负载）、**FP8 混合精度**、**repo-level packing**。
 
-> 目标模型：GLM-5.1（754B MoE-DSA）。主线参考：GLM-4.5 技术报告（arXiv 2508.06471），辅以 DeepSeekMoE（2401.06066）、DeepSeek-V3（2412.19437）、DeepSeek-V3.2 Exp (DSA) 的公开材料，以及 Megatron-LM / torchtitan / nanotron 的工程实践。
+> 目标模型：GLM-5.2（744B MoE-DSA）。主线参考：GLM-4.5 技术报告（arXiv 2508.06471），辅以 DeepSeekMoE（2401.06066）、DeepSeek-V3（2412.19437）、DeepSeek-V3.2 Exp (DSA) 的公开材料，以及 Megatron-LM / torchtitan / nanotron 的工程实践。
 >
 > 本笔记面向有 GPU 经验、准备从零跑通一个 0.5B–1.5B MoE coding 小模型的研究者。力求可动手：给配置、给命令、给监控指标。
 
 > **读者画像** · 手头有 4-8 张 H100/A100、想从零跑通一个小 MoE pretrain run、并能解释每一行 yaml 含义的工程师。
-> **前置知识** · 序.11 Q/K/V + GQA/MLA、序.15 并行速览（[basics](./phase_basics_training.md)）；phase0 §1 GLM-5.1 架构表；摸过 Megatron / torchtitan / nanotron 任一框架最佳。
+> **前置知识** · 序.11 Q/K/V + GQA/MLA、序.15 并行速览（[basics](./phase_basics_training.md)）；phase0 §1 GLM-5.2 架构表；摸过 Megatron / torchtitan / nanotron 任一框架最佳。
 > **学完能做** · 在 8 张 H100 上把一个 1B 量级 MoE 模型从随机初始化训到 loss 健康下降，MFU ≥ 35%，并能解释每个超参为什么这么选。
 
 ---
@@ -20,19 +20,19 @@
 ## 0. 本阶段目标与路径图
 
 Phase 2 的核心任务是把"模型结构"与"训练基础设施"两条线打通，交付物是：
-1. 能读懂 GLM-5.1 架构设计图、并能对每一个模块回答"为什么这样设计"。
+1. 能读懂 GLM-5.2 架构设计图、并能对每一个模块回答"为什么这样设计"。
 2. 能在 8×H100（或 8×A100）上把一个 0.5B–1.5B 的 MoE 小模型从零训起来，loss 曲线健康、MFU 达到 35% 以上。
 3. 能看懂 Megatron-LM / torchtitan / nanotron 的启动脚本，并能改参数做对比实验。
 
-不追求"复现 754B"，而是把关键技术点（MoE 路由、DSA、MLA、FP8、**EP**(Expert Parallel · 专家并行)+**TP**(Tensor Parallel · 张量并行) 组合、**MTP**(Multi-Token Prediction · 多 token 预测)）在小规模上打通。大规模的硬件优化留到 Phase 3。
+不追求"复现 744B"，而是把关键技术点（MoE 路由、DSA、MLA、FP8、**EP**(Expert Parallel · 专家并行)+**TP**(Tensor Parallel · 张量并行) 组合、**MTP**(Multi-Token Prediction · 多 token 预测)）在小规模上打通。大规模的硬件优化留到 Phase 3。
 
 > 💡 **本章高频缩写一览**（按首次出现顺序）：MoE = Mixture of Experts（专家混合）· EP = Expert Parallel（专家并行）· TP = Tensor Parallel（张量并行）· PP = Pipeline Parallel（流水线并行）· FSDP = Fully Sharded Data Parallel · MLA = Multi-head Latent Attention · DSA = DeepSeek Sparse Attention · MTP = Multi-Token Prediction · FP8 = 8-bit 浮点（E4M3 / E5M2 两种 mantissa 分配）· MFU = Model FLOPs Utilization。详细定义见 [▣ 索引](./phase_glossary.md)。
 
 ---
 
-## 0.5 架构演进史：从 Transformer 2017 到 GLM-5.1
+## 0.5 架构演进史：从 Transformer 2017 到 GLM-5.2
 
-> 在钻进 GLM-MoE-DSA 细节之前，先建立**整条演进脉络**。GLM-5.1 不是凭空设计出来的，它是过去 8 年架构研究的累积结果。每一层改动都在解决**前一代的某个具体瓶颈**。看完这一节，再看 §1 的深度拆解会轻松很多。
+> 在钻进 GLM-MoE-DSA 细节之前，先建立**整条演进脉络**。GLM-5.2 不是凭空设计出来的，它是过去 8 年架构研究的累积结果。每一层改动都在解决**前一代的某个具体瓶颈**。看完这一节，再看 §1 的深度拆解会轻松很多。
 
 一句话全局观：**每次架构更新，要么在省显存，要么在省算力，要么在放大模型容量**——而这三件事在长上下文和大规模 MoE 面前同时变得棘手。
 
@@ -182,7 +182,7 @@ Mixtral 8×7B 的账：总参 47B、激活 13B——**容量接近 70B dense，�
 
 ### 0.5.5 DeepSeek 路线（2024 · V2 / V3）：Fine-grained + Shared + MLA
 
-DeepSeek 团队在 MoE 基础上做了三个关键创新，**被 GLM-5.1 直接继承**：
+DeepSeek 团队在 MoE 基础上做了三个关键创新，**被 GLM-5.2 直接继承**：
 
 ```mermaid
 flowchart TB
@@ -220,9 +220,9 @@ flowchart TB
 
 DeepSeek-V3 在此之上再加 **aux-loss-free 负载均衡**（不用 auxiliary loss 就能让专家均衡激活，避免 router 卡死）和 **MTP (Multi-Token Prediction)**（训练时同时预测 N 个未来 token，推理时可做 speculative decoding）。
 
-### 0.5.6 GLM-5.1（2026 · MoE-DSA）：再叠一层 DSA
+### 0.5.6 GLM-5.2（2026 · MoE-DSA）：再叠一层 DSA
 
-GLM-5.1 把 DeepSeek-V3 的 MLA+MoE 组合**原样继承**，唯一的重大新增是 **DSA (DeepSeek Sparse Attention)**，来自 DeepSeek-V3.2 的实验成果。
+GLM-5.2 把 DeepSeek-V3 的 MLA+MoE 组合**原样继承**，唯一的重大新增是 **DSA (DeepSeek Sparse Attention)**，来自 DeepSeek-V3.2 的实验成果。
 
 ```mermaid
 flowchart TB
@@ -253,7 +253,7 @@ flowchart TB
   OUT -.最后几层.-> MTP
 ```
 
-**GLM-5.1 vs DeepSeek-V3 的净增量**：
+**GLM-5.2 vs DeepSeek-V3 的净增量**：
 - 加了 **DSA**：每个 query 通过轻量 Lightning Indexer 动态挑选"真正关心的"top-k KV 位置，attention 变稀疏
 - attention 复杂度从 **O(L²)** 降到 **O(L·k)**，这是 200K 上下文在推理能用得起的关键
 
@@ -279,7 +279,7 @@ flowchart LR
 | **Hybrid (Transformer + SSM)** | O(L²) 少数层 + O(L) 多数层 | **Jamba-1.5**（AI21）· Zamba-7B | 2024-2026 最务实路线，长上下文成本显著降 |
 | **Linear Attention** | O(L) | RetNet · GLA | 学术探索，未见 SOTA |
 
-**为什么 GLM-5.1 不走 SSM 路线？** —— 生态和可验证性。Transformer 的训练基础设施、推理引擎、评测 benchmark、下游工具全部以它为假设。DSA 是在"保留 Transformer 精度"的前提下把复杂度降下来的**渐进方案**，工程风险低。
+**为什么 GLM-5.2 不走 SSM 路线？** —— 生态和可验证性。Transformer 的训练基础设施、推理引擎、评测 benchmark、下游工具全部以它为假设。DSA 是在"保留 Transformer 精度"的前提下把复杂度降下来的**渐进方案**，工程风险低。
 
 ### 0.5.8 一张图看清全部演进脉络
 
@@ -290,7 +290,7 @@ flowchart LR
   M["现代 Dense · 2023<br/>LLaMA · Qwen<br/>RMSNorm + RoPE + SwiGLU + GQA"]
   X["Mixtral MoE · 2023<br/>router + top-2 of 8 experts"]
   D["DeepSeek V2 V3 · 2024<br/>+ MLA · KV 压缩<br/>+ fine-grained experts<br/>+ shared expert<br/>+ aux-loss-free + MTP"]
-  GLM["GLM-5.1 · 2026-04<br/>+ DSA 稀疏 attention<br/>复杂度从二次降到线性乘 k<br/>754B total · ~30B active"]
+  GLM["GLM-5.2 · 2026-06<br/>+ DSA 稀疏 + IndexShare<br/>1M 上下文 · 复杂度降到线性乘 k<br/>744B total · ~40B active"]
   SSM["Mamba · SSM<br/>2023-2026<br/>线性复杂度"]
   HY["Hybrid<br/>Jamba · Zamba<br/>Transformer + SSM"]
   V --> G --> M --> X --> D --> GLM
@@ -304,7 +304,7 @@ flowchart LR
 
 ### 0.5.9 横向对比：5 代架构的核心差异
 
-| 维度 | Vanilla (2017) | GPT (2018) | LLaMA (2023) | Mixtral (2023) | DeepSeek-V3 (2024) | **GLM-5.1 (2026)** |
+| 维度 | Vanilla (2017) | GPT (2018) | LLaMA (2023) | Mixtral (2023) | DeepSeek-V3 (2024) | **GLM-5.2 (2026)** |
 |---|---|---|---|---|---|---|
 | 目标 | 翻译 | 语言建模 | 大规模 LM | 大规模稀疏 | 极大规模 | 极大规模 + 长上下文 |
 | 结构 | enc+dec | decoder-only | decoder-only | decoder + MoE | decoder + MoE | decoder + MoE + 稀疏 attn |
@@ -316,12 +316,12 @@ flowchart LR
 | 负载均衡 | — | — | — | aux loss | **aux-loss-free** | aux-loss-free |
 | 长上下文手段 | 无 | 扩 context window | RoPE 外推 / YaRN | YaRN | YaRN + **稀疏** | YaRN + **DSA** |
 | 多 token 预测 | — | — | — | — | **MTP** 头 | MTP 头 |
-| 总参量级（代表） | 65M | 175B (GPT-3) | 70B | 47B / 激活 13B | 671B / 激活 37B | **754B / 激活 ~30B** |
+| 总参量级（代表） | 65M | 175B (GPT-3) | 70B | 47B / 激活 13B | 671B / 激活 37B | **744B / 激活 ~30B** |
 | KV cache 相对值 | 1× | 1× | 0.25×（GQA） | 0.25× | **~0.025×（MLA）** | ~0.025×（MLA） |
 
 ### 0.5.10 一句话带走
 
-> **GLM-5.1 = GPT 因果 decoder × LLaMA 现代化（RMSNorm/RoPE/SwiGLU）× Mixtral 稀疏 MoE × DeepSeek 三件套（MLA / fine-grained+shared / aux-loss-free / MTP）× DSA 稀疏 attention。**
+> **GLM-5.2 = GPT 因果 decoder × LLaMA 现代化（RMSNorm/RoPE/SwiGLU）× Mixtral 稀疏 MoE × DeepSeek 三件套（MLA / fine-grained+shared / aux-loss-free / MTP）× DSA 稀疏 attention。**
 >
 > 看清这条链你就明白：每一层改动都在回答一个具体瓶颈——
 > GQA 解 KV cache、RoPE 解长度外推、MoE 解容量、MLA 解 KV 再压、fine-grained 解 MoE 细粒度、shared expert 解路由偏科、aux-loss-free 解路由崩塌、DSA 解 attention 二次复杂度。
@@ -334,9 +334,9 @@ flowchart LR
 
 ## 1. 架构拆解
 
-### 1.1 整体结构概览（GLM-4.5 → GLM-5.1 的演进）
+### 1.1 整体结构概览（GLM-4.5 → GLM-5.2 的演进）
 
-GLM-4.5 的核心是 355B 总参 / 32B 激活的 MoE 结构，使用 GQA（Grouped-Query Attention）+ Partial RoPE + SwiGLU + RMSNorm + MTP。到 GLM-5.1 754B 时，最关键的变化是把 Attention 换成了 **DSA（Dynamic Sparse Attention）**，并进一步细化了 MoE（更多、更小的 routed expert + 少量 shared expert，延续 DeepSeekMoE 的 fine-grained 思路）。
+GLM-4.5 的核心是 355B 总参 / 32B 激活的 MoE 结构，使用 GQA（Grouped-Query Attention）+ Partial RoPE + SwiGLU + RMSNorm + MTP。到 GLM-5.2 744B 时，最关键的变化是把 Attention 换成了 **DSA（Dynamic Sparse Attention）**，并进一步细化了 MoE（更多、更小的 routed expert + 少量 shared expert，延续 DeepSeekMoE 的 fine-grained 思路）。
 
 一个典型的 MoE-DSA Transformer block，数据流大致是：
 
@@ -364,7 +364,7 @@ MoE 内部：
 
 ### 1.2 MoE 路由
 
-**(a) 路由的本质**。MoE FFN 把传统 dense FFN 拆成 N 个小 expert + 一个 router。router 是一个线性层 `W_r ∈ R^{d×N}`，对每个 token 输出 N 维 logits，选 top-k 个 expert 激活。激活参数量 = 激活的 expert 数 × 单 expert 参数量，远小于总参数量（754B 总参 / ~30-40B 激活 是 GLM-5.1 的量级）。
+**(a) 路由的本质**。MoE FFN 把传统 dense FFN 拆成 N 个小 expert + 一个 router。router 是一个线性层 `W_r ∈ R^{d×N}`，对每个 token 输出 N 维 logits，选 top-k 个 expert 激活。激活参数量 = 激活的 expert 数 × 单 expert 参数量，远小于总参数量（744B 总参 / ~30-40B 激活 是 GLM-5.2 的量级）。
 
 **(b) 四种主流路由策略**：
 
@@ -375,7 +375,7 @@ MoE 内部：
 | Expert Choice | 反过来：每个 expert 选 top-k 个 token | Zoph et al. 2022 | 天然负载均衡，但破坏 causal（训练可用、推理需近似） |
 | Aux-loss-free | 给每个 expert 一个可学习 bias，routing 前加到 logits 上；只在 bias 更新时用负载均衡信号 | DeepSeek-V3、GLM-4.5/5.1 | 不污染主 loss 梯度，是目前最干净的做法 |
 
-**(c) DeepSeek-V3 / GLM-5.1 的 aux-loss-free 细节**：
+**(c) DeepSeek-V3 / GLM-5.2 的 aux-loss-free 细节**：
 
 ```python
 # 伪代码：aux-loss-free routing
@@ -392,7 +392,7 @@ with torch.no_grad():
     expert_bias += update_rate * err.sign()       # sign 比 scale 更稳
 ```
 
-优点：主 loss 只优化 LM，不必和 aux loss 拉扯；负载均衡由 bias 这个"旁路"控制，收敛更干净。GLM-5.1 延续这一做法。
+优点：主 loss 只优化 LM，不必和 aux loss 拉扯；负载均衡由 bias 这个"旁路"控制，收敛更干净。GLM-5.2 延续这一做法。
 
 **(d) Top-k 里的 k 怎么选**：DeepSeek-V3 用 k=8（+1 shared），GLM-4.5 也在这个量级。k 太小容易 dropping；k 太大激活参数量上去、训练/推理成本增加。常见组合：`N_routed=128~256, k=6~8, N_shared=1~2`。
 
@@ -408,9 +408,9 @@ with torch.no_grad():
 - 数学上激活参数量不变，但组合数爆炸（C(N,k) 上升），每个 token 得到的"专业组合"表达更丰富。
 - 代价：router 参数变大（N 大了），all-to-all 通信压力上升。
 
-DeepSeekMoE 原论文的消融表明：shared+fine-grained 相比同激活量的 GShard 风格，在 loss 上显著更优。GLM-5.1 延续这一设计哲学。
+DeepSeekMoE 原论文的消融表明：shared+fine-grained 相比同激活量的 GShard 风格，在 loss 上显著更优。GLM-5.2 延续这一设计哲学。
 
-### 1.4 DSA（Dynamic Sparse Attention）——GLM-5.1 的关键变化
+### 1.4 DSA（Dynamic Sparse Attention）——GLM-5.2 的关键变化
 
 **(a) 为什么要 DSA**：长上下文场景下，标准 full attention 的 KV cache 和 FLOPs 都是 O(L)。稀疏 attention（如 sliding window、BigBird）虽然降到 O(L·W)，但模式固定，对代码/推理这种"跨越式引用"任务表达力差。DSA 的 insight 是：**稀疏模式不要预先定死，而是让模型为每个 query 动态选择它真正需要的 KV**。
 
@@ -454,7 +454,7 @@ DeepSeekMoE 原论文的消融表明：shared+fine-grained 相比同激活量的
 - 推理时 K = W_uk · c, V = W_uv · c 按需展开（且 W_uk/W_uv 可以吸收进 Q 的投影矩阵，做"权重吸收"免掉一次矩阵乘）。
 - RoPE 与 MLA 的冲突：RoPE 作用在 K 上会破坏"c→K"的线性性。DeepSeek 的方案是"解耦式 RoPE"：K 分两部分，一部分从 c 解压（带位置语义但不加 RoPE），另一部分是独立的 `K_rope = W_kr · x` 直接加 RoPE，拼接后做 attention。
 
-**GLM-5.1 的选择**：MLA 风格的低秩 KV + DSA top-N 选择，是当前长上下文推理成本最低的组合之一。
+**GLM-5.2 的选择**：MLA 风格的低秩 KV + DSA top-N 选择，是当前长上下文推理成本最低的组合之一。
 
 ### 1.6 位置编码：RoPE、RoPE base 扩展、YaRN
 
@@ -549,7 +549,7 @@ tok.save("/models/tokenizer-glm5mini.json")
 - 按字符切（随机选两个切点）比按 token 切效果略好，因为避免了 token 边界偏置。
 - 在 repo-level 训练时，FIM 和 file-level 拼接要分开做：先 FIM 再拼 repo，否则 special token 会乱。
 
-### 3.3 Multi-Token Prediction（MTP，GLM-5.1 自带）
+### 3.3 Multi-Token Prediction（MTP，GLM-5.2 自带）
 
 **思想**（源自 DeepSeek-V3）：除了预测 t+1，还预测 t+2, t+3, ..., t+D 共 D 个未来 token。D 通常取 1–4。
 
@@ -607,7 +607,7 @@ main backbone
 | Dense 70B | DP=2, TP=8, PP=4 | TP 限制在 NVLink 域内（8 卡） |
 | MoE 32B-activated | DP=8, EP=8, TP=1, PP=1 | EP 走 NVLink，DP 走 IB |
 | MoE 300B+ | DP=4, EP=16, TP=2, PP=4 | 全 3D + EP |
-| GLM-5.1 754B | DP×EP×TP×PP ≈ 数千卡 | 需要 64K+ expert 级别的 all-to-all 优化 |
+| GLM-5.2 744B | DP×EP×TP×PP ≈ 数千卡 | 需要 64K+ expert 级别的 all-to-all 优化 |
 
 **经验法则**：
 - TP 不跨 node（NVLink > IB 带宽 10×）。
@@ -965,7 +965,7 @@ Phase 2 结束后，你应该拥有：
 1. **一个跑通的小 MoE 模型 checkpoint**（1.3B 总参 / 200M 激活 / 500B token 训练）。
 2. **一份详实的训练日志**（W&B dashboard），能对任何一条 loss/grad 曲线解释"为什么长这样"。
 3. **一份改框架的能力**：能往 torchtitan 或 nanotron 里加一个新模块（比如把 GQA 换成 MLA，或者加 DSA 的 indexer）。
-4. **对 GLM-5.1 每一个架构决策的判断力**：拿到 754B 的架构图时，不再只是"读"，而是能说"如果我换成 X 会有什么代价"。
+4. **对 GLM-5.2 每一个架构决策的判断力**：拿到 744B 的架构图时，不再只是"读"，而是能说"如果我换成 X 会有什么代价"。
 
 Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 token 级别的数据配比与课程）、FP8 全面启用、checkpoint/restart 的可靠性工程、以及千卡以上规模的通信优化。
 
@@ -1007,7 +1007,7 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 ## 📌 章末检查
 
 **带走这 5 条**
-- MoE = "大参 / 小算" trade-off；256 routed + 1 shared + top-8 是 GLM-5.1 的默认拓扑。
+- MoE = "大参 / 小算" trade-off；256 routed + 1 shared + top-8 是 GLM-5.2 的默认拓扑。
 - MLA 把 KV cache 压 ~10×（q_lora 2048 / kv_lora 512），是 200K 上下文能跑的前提。
 - 防 expert collapse 用 **aux-loss-free** + top-k routing，监控 `expert_load_var` 比看 loss 更早发现问题。
 - Muon 取代 AdamW 是 2025 H2 MoE 大模型的新换法，省 ≈ 40% 优化器状态显存。
@@ -1021,7 +1021,7 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 <details><summary>参考答案</summary>
 
 1. **通信**——expert parallel 需要 all-to-all 通信，对 NIC 带宽和拓扑（IB / NVLink / RoCE）极敏感；硬件没准备好的话 MoE 实际吞吐反而比 dense 慢 30%。
-2. 是经验值（DeepSeek-V2 起、GLM-5.1 沿用）。降到 1024 短上下文几乎无差，长上下文检索（needle-in-haystack）会掉 2-5pp。
+2. 是经验值（DeepSeek-V2 起、GLM-5.2 沿用）。降到 1024 短上下文几乎无差，长上下文检索（needle-in-haystack）会掉 2-5pp。
 3. WSD 稳定段可由你按"训得够久了"决定何时进入衰减，对 ablation 友好。当总训练 token 已确定且不会续训时，cosine 一次性排好更省事。
 </details>
 
@@ -1033,13 +1033,13 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 
 ## 动手练习
 
-1. 打开 GLM-5.1 / DeepSeek-V3 / Qwen3-Next 三份 `config.json`，对照 §0.5 架构演进图，把每个模型的位置标在演进树上：用了 MLA 还是 GQA、用了 RMSNorm pre-norm 还是 post-norm、SwiGLU 还是 GLU、是否 partial RoPE。
+1. 打开 GLM-5.2 / DeepSeek-V3 / Qwen3-Next 三份 `config.json`，对照 §0.5 架构演进图，把每个模型的位置标在演进树上：用了 MLA 还是 GQA、用了 RMSNorm pre-norm 还是 post-norm、SwiGLU 还是 GLU、是否 partial RoPE。
    *提示*：浏览器看 HF Files 即可，不需要环境。
 2. 在单卡 1×H100 上用 torchtitan 跑一个 ~150M 参数的 dense 小模型 100 step，记录 MFU、loss、tokens/sec，目标 MFU ≥ 40%。然后把 hidden size 翻倍重跑，看 MFU 怎么变。
    *提示*：torchtitan `train_configs/llama3_8b.toml` 改尺寸；MFU 计算见 §0 或附录 B。
 3. 把 #2 模型升级成 16 expert 的小 MoE（top_k=2，aux-loss-free），保持总激活参数量不变。手画 expert load 直方图（每 1k step 打一次），观察前 1k step 是否出现 routing collapse（某 expert 拿走 > 30% token）。
    *提示*：MoE 章节 §1 + DeepSeekMoE 论文。aux-loss-free 的 bias 更新逻辑要自己实现 ~10 行。
-4. 实现一份 GLM-5.1 风格的 MLA forward（q_lora=2048, kv_lora=512, qk_nope=192, qk_rope=64），用纯 PyTorch、不用 fused kernel。和等效的标准 MHA 在 fixed input 下的输出做数值对比，验证 KV cache 显存确实降了 ≥ 4×。
+4. 实现一份 GLM-5.2 风格的 MLA forward（q_lora=2048, kv_lora=512, qk_nope=192, qk_rope=64），用纯 PyTorch、不用 fused kernel。和等效的标准 MHA 在 fixed input 下的输出做数值对比，验证 KV cache 显存确实降了 ≥ 4×。
    *提示*：DeepSeek-V3 §2.2、phase0 §1.1。这是后面 Phase 7 推理优化的根。
 5. **完整 capstone**：用 Phase 1 产出的 ≥ 10B token 数据集，在 4-8 张 H100 上从零训一个 1B 激活 / 4B 总参的 MoE-coding 小模型，跑满 30B token，最终在 HumanEval+ 上拿到 ≥ 25% pass@1。全程要监控 grad_norm、expert load balance、auxiliary loss、MFU 五条曲线，并写一份训练日志复盘。
    *提示*：这是 Phase 2 的"毕业项目"。预算约 500-800 H100·hour。框架推荐 torchtitan（最简）或 Megatron-LM（最成熟）。
@@ -1056,7 +1056,7 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 
 不要从论文榜单选架构，要从**部署目标 + 团队体量 + 流量画像**反推。下表是给 2026 年中文场景的工程经验值（H100/H200 价位 + 国内云市场水准）：
 
-| 维度 | dense（1.5B–14B 经典 Llama 类） | 小 MoE（1.3B–30B，激活 200M–4B） | 大 MoE（200B+，激活 30B+，含 GLM-5.1） |
+| 维度 | dense（1.5B–14B 经典 Llama 类） | 小 MoE（1.3B–30B，激活 200M–4B） | 大 MoE（200B+，激活 30B+，含 GLM-5.2） |
 |---|---|---|---|
 | 团队规模（专职 LLM 工程师） | 1–3 人即可 | 3–6 人 | 8 人以上，且需 infra 专人 |
 | 单次训练算力预算 | $20K–200K | $80K–500K | $1M–10M+ |
@@ -1076,7 +1076,7 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 
 把"做 Coding LLM"细分为三条路径，先把账算明白再决定：
 
-| 维度 | 路径 A：从零自研架构 | 路径 B：在 GLM-5.1 上 continued pretrain + SFT | 路径 C：直接调 GLM-5.1 / DeepSeek API |
+| 维度 | 路径 A：从零自研架构 | 路径 B：在 GLM-5.2 上 continued pretrain + SFT | 路径 C：直接调 GLM-5.2 / DeepSeek API |
 |---|---|---|---|
 | 启动周期 | 6–12 个月 | 1–3 个月 | 1–2 周 |
 | 一次性投入（人 + 算力） | $2M–10M+ | $200K–1M | $5K–50K（prompt + RAG） |
@@ -1087,7 +1087,7 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 | 失败不可见性 | 高（训崩了你根本不知道为啥） | 中（可对比 base） | 低（API 表现稳定） |
 | 推荐适用 | 国家队 / 头部大厂 / 有特殊架构需求 | 中型企业、垂直 SaaS、对私有数据敏感 | 80% 创业团队、PoC 阶段、流量未起量 |
 
-**关键认知**：路径 B 是 2026 年绝大多数团队的最优解。GLM-5.1 这一代 base model 已经把"通用 coding 能力"做到了 80 分，剩下 20 分**全部在你的私有数据 + 任务定义上**，不在架构里。**自研架构的 ROI 在 2024 年还成立，2026 年已经被开源 base model 的成熟度拉到了大厂之外几乎不可能为正。**
+**关键认知**：路径 B 是 2026 年绝大多数团队的最优解。GLM-5.2 这一代 base model 已经把"通用 coding 能力"做到了 80 分，剩下 20 分**全部在你的私有数据 + 任务定义上**，不在架构里。**自研架构的 ROI 在 2024 年还成立，2026 年已经被开源 base model 的成熟度拉到了大厂之外几乎不可能为正。**
 
 ### 11.3 不同规模企业的现实路径
 
@@ -1105,17 +1105,17 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 - 主力路径：GLM-4.5-Air（106B/12B）或 Qwen3-30B-A3B 上做 continued pretrain + SFT。
 - 算力配置：自建 8–16×H100 / H200，或租 64 卡 spot，3 个月一轮迭代。
 - ROI 临界点：当 API 月费 > $30K 且能内部消化 GPU，自研路径开始划算。
-- **特别注意**：避开 GLM-5.1 这一类 754B 大 MoE。你的算力撑不起每次 EP=8 的多机训练，调试一次 OOM 的代价就是一周。
+- **特别注意**：避开 GLM-5.2 这一类 744B 大 MoE。你的算力撑不起每次 EP=8 的多机训练，调试一次 OOM 的代价就是一周。
 
 **大厂（互联网公司 R&D 5K+，有 10+ ML infra，自建 IDC）**
 
-- 路径：GLM-5.1 级别的 base + 大规模 continued + 大规模 SFT + RL。本系列 Phase 1–8 的全栈即对应这条路径。
+- 路径：GLM-5.2 级别的 base + 大规模 continued + 大规模 SFT + RL。本系列 Phase 1–8 的全栈即对应这条路径。
 - 关键不在"训不训"，而在**如何复用基础设施**：训练栈、推理栈、评测栈都要做成内部 platform，否则会被各 BU 重复造轮子拖垮。
 - 评估指标：内部 SWE-Bench（参考 Phase 6 §11）+ 业务侧实测（Phase 8 §10 的 RAG 落地效果）。
 
 **超大厂 / 国家队（千卡集群可控，有 base model 自研意愿）**
 
-- 路径：从零自研架构（路径 A），目标是**架构创新本身**——MLA + DSA + 新一代专家分布。GLM-5.1 这种就是大厂自研的产物。
+- 路径：从零自研架构（路径 A），目标是**架构创新本身**——MLA + DSA + 新一代专家分布。GLM-5.2 这种就是大厂自研的产物。
 - 现实：如果你不在这一档，**别碰这条路**。它的故事性 > 经济性，但故事讲不出来就是负 ROI。
 
 ### 11.4 架构决策中的 5 个常见误区
@@ -1126,15 +1126,15 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 |---|---|---|---|
 | 1. 盲目追 MoE | 5 人小团队第一个项目就上 1.3B/200M MoE | expert collapse 调 3 周仍崩，最终回到 dense | 团队 < 5 人 + 训练经验 < 1 年时，**永远先 dense**。MoE 是对架构经验的加成，不是替代 |
 | 2. 盲目从头训（"自主可控"宗教） | 拒绝 base model，要"完全自主"，从 random init 开始 | 1B token 还没收敛到能用，半年烧光 $500K | 自主可控 ≠ 从零训。在开源 base 上做 continued pretrain，weight 同样 100% 在你手里 |
-| 3. 抄 GLM-5.1 配方但只用 1/100 算力 | 直接 fork DeepSeekMoE 配置，但只跑 50B token | 训出一个比 base dense 还差的 MoE | MoE 对 token 量极度敏感，**至少 200B token + 256 experts 才有意义**。算力不够就缩 expert 数和 layer 数，别只缩 token |
+| 3. 抄 GLM-5.2 配方但只用 1/100 算力 | 直接 fork DeepSeekMoE 配置，但只跑 50B token | 训出一个比 base dense 还差的 MoE | MoE 对 token 量极度敏感，**至少 200B token + 256 experts 才有意义**。算力不够就缩 expert 数和 layer 数，别只缩 token |
 | 4. FP8 上来就开 | 第一次训 MoE 就开 FP8 + DeepGEMM | loss 间歇性 spike，定位不出是数据问题、scaling 问题还是 kernel 问题 | 先 BF16 跑通到 50B token loss 平滑，再切 FP8。**FP8 是优化项，不是起点** |
 | 5. 不评测就发车 | 训完直接看 HumanEval 一个数，发布"我们超过了 X"  | 三个月后发现仅在 Python 上 work，企业 Java/Go 全垮 | 训练前先把 Phase 6 §11 的内部 SWE-Bench v0（10 题）搭起来，每 5B token 跑一次 |
 
-### 11.5 GLM-5.1 直接微调 vs 自训小 MoE：成本-收益分析
+### 11.5 GLM-5.2 直接微调 vs 自训小 MoE：成本-收益分析
 
 这是中型团队最纠结的一道题，给出可计算的版本（2026 年 H100/H200 国内租赁价位 ≈ $2.0/H100·hr、$3.5/H200·hr）：
 
-**方案 A：GLM-5.1 (754B/40B) LoRA SFT + 推理**
+**方案 A：GLM-5.2 (744B/40B) LoRA SFT + 推理**
 
 | 项目 | 数字 |
 |---|---|
@@ -1178,9 +1178,9 @@ Phase 3 将在此基础上深入：大规模训练的数据流水线（万亿 to
 
 | 月份 | 主任务 | 关键产出 | 决策点 |
 |---|---|---|---|
-| M1 | 调 GLM-5.1 API 跑通业务 + 搭内部 SWE-Bench v0（10 题） | 业务 demo + 第一次 base 模型评测数字 | API 调用月费是否 > $5K？是 → 继续；否 → 停在路径 C |
+| M1 | 调 GLM-5.2 API 跑通业务 + 搭内部 SWE-Bench v0（10 题） | 业务 demo + 第一次 base 模型评测数字 | API 调用月费是否 > $5K？是 → 继续；否 → 停在路径 C |
 | M2 | 内部 SWE-Bench v1（50 题）+ Phase 1 数据 pipeline（私有代码入库） | 基线分数 + 5B token 私有语料库 | 数据是否 > 1B 高质量 token？是 → 继续；否 → 先回去补数据 |
-| M3 | GLM-5.1 LoRA SFT v0（10K 高质量 task） | 训完 + 评测：内部 SWE-Bench 应 +5–10pp | LoRA 提升是否 > 5pp？是 → 进 M4；否 → 数据问题，回 M2 |
+| M3 | GLM-5.2 LoRA SFT v0（10K 高质量 task） | 训完 + 评测：内部 SWE-Bench 应 +5–10pp | LoRA 提升是否 > 5pp？是 → 进 M4；否 → 数据问题，回 M2 |
 | M4 | LoRA SFT v1（80K task）+ 上线 canary（5% 流量） | 第一版自训模型在线 | 用户满意度（人工 +1/-1）是否 > base？是 → 全量；否 → 回炉 |
 | M5–M6 | RL（Phase 5）+ Agent harness（Phase 8） | RL 后 SWE-Bench +5–10pp，可执行 agent | 是否需要更深的私有知识？是 → M7 continued pretrain；否 → 优化部署 |
 | M7–M9 | （可选）在 GLM-4.5-Air 上做 continued pretrain（私有代码 50B token） | 自有 base model（Air 级别） | 持续算力是否到位？是 → 继续；否 → 停在 LoRA |

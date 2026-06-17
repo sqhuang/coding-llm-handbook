@@ -3,11 +3,11 @@
 > 📅 主线快照：2026-04-22 · 上次核对：2026-04-30
 
 > **⚡ 三句话要点**
-> 1. 全部实验是 **A vs B 微观对照**，30 分钟到 2 小时跑完——硬件假设 1×3090 / Colab T4 / 甚至纯 CPU，不是 754B 复现。
+> 1. 全部实验是 **A vs B 微观对照**，30 分钟到 2 小时跑完——硬件假设 1×3090 / Colab T4 / 甚至纯 CPU，不是 744B 复现。
 > 2. **带预期跑**：先读"你应当看到的对比"再开跑，跑完用底部 ✓/✗ 清单自检——盲跑收获少 3 倍。
-> 3. 代理模型走 **Qwen2.5-0.5B / LLaMA-3.2-1B / GLM-4-Flash**，不依赖 GLM-5.1 本体，所以本册可以脱离主线笔记单独使用。
+> 3. 代理模型走 **Qwen2.5-0.5B / LLaMA-3.2-1B / GLM-4-Flash**，不依赖 GLM-5.2 本体，所以本册可以脱离主线笔记单独使用。
 
-> **定位**：本册是主线 9 个 Phase 的"动手附录"。每个实验都是一个 **A vs B** 的微观对照——不教你训一个 754B 的 GLM-5.1，而是用 **1×3090 / Colab T4 / 甚至纯 CPU**，在 **30 分钟到 2 小时**内复现一个具体命题（例如"GQA 真的能压缩 KV cache 吗""RoPE base 改大 50× 真的能外推吗"）。
+> **定位**：本册是主线 9 个 Phase 的"动手附录"。每个实验都是一个 **A vs B** 的微观对照——不教你训一个 744B 的 GLM-5.2，而是用 **1×3090 / Colab T4 / 甚至纯 CPU**，在 **30 分钟到 2 小时**内复现一个具体命题（例如"GQA 真的能压缩 KV cache 吗""RoPE base 改大 50× 真的能外推吗"）。
 >
 > **风格**：先给假设（你应当看到 X），再给可拷贝的命令，最后给核对清单。代码尽量短（10-25 行），依赖只用 `transformers / datasets / numpy / torch`，偶尔加一个 `vllm / peft / trl` 这种轻量库。
 >
@@ -16,7 +16,7 @@
 > 2. **先读"你应当看到的对比"再开跑**——带预期跑实验比盲跑收获大 3 倍。
 > 3. 跑完用底部的"✓/✗ 清单"自我核对。
 >
-> **硬件假设**：默认 1×RTX 3090 (24GB) 或 Colab T4 (16GB)。CPU-only 的实验会单独标注。所有大模型推理都用 ≤ 3B 的代理模型（Qwen2.5-0.5B / LLaMA-3.2-1B / GLM-4-Flash 之类），不依赖 GLM-5.1 本体。
+> **硬件假设**：默认 1×RTX 3090 (24GB) 或 Colab T4 (16GB)。CPU-only 的实验会单独标注。所有大模型推理都用 ≤ 3B 的代理模型（Qwen2.5-0.5B / LLaMA-3.2-1B / GLM-4-Flash 之类），不依赖 GLM-5.2 本体。
 
 ---
 
@@ -254,7 +254,7 @@ print(f"DeepSeek-V2-Lite MLA实际cache: {mla_kv/1024:.1f} KB/tok")
 - ✓ GQA 把 KV cache 砍到 1/4 左右
 - ✓ MLA 进一步砍到 ~1/15
 - ✗ MLA 不是免费午餐——计算量略增（rope + 上投影）
-- 延伸：GLM-5.1 用 MLA + DSA，128K context 时 KV cache 比纯 MHA 节省多少？
+- 延伸：GLM-5.2 用 MLA + DSA，128K context 时 KV cache 比纯 MHA 节省多少？
 
 ---
 
@@ -294,9 +294,9 @@ print(f"Dense  params={params_dense(d,ff,L)/1e9:.2f}B  GFLOPs={dense_flops(d,ff,
 d2, ff2, L2 = 1024, 2816, 24
 print(f"MoE 8e top2  total={params_moe(d2,ff2,L2,8)/1e9:.2f}B  active≈{params_moe(d2,ff2,L2,2)/1e9:.2f}B  GFLOPs={moe_flops(d2,ff2,L2,8,2)/1e9:.2f}")
 
-# GLM-5.1 估算（754B 总, ~70B 激活）
+# GLM-5.2 估算（744B 总, ~70B 激活）
 d3, ff3, L3 = 8192, 3072, 80
-print(f"GLM-5.1-like  total={params_moe(d3,ff3,L3,256)/1e9:.0f}B  active(top8)≈{params_moe(d3,ff3,L3,8)/1e9:.0f}B")
+print(f"GLM-5.2-like  total={params_moe(d3,ff3,L3,256)/1e9:.0f}B  active(top8)≈{params_moe(d3,ff3,L3,8)/1e9:.0f}B")
 ```
 
 **📊 关键观察指标**
@@ -305,7 +305,7 @@ print(f"GLM-5.1-like  total={params_moe(d3,ff3,L3,256)/1e9:.0f}B  active(top8)�
 
 **💡 结论确认 & 进阶**
 - ✓ MoE 总参大 2-5×，但 FLOPs 与"激活参数"接近
-- ✓ 这就是为什么 GLM-5.1 754B 推理只要 ~70B dense 的成本
+- ✓ 这就是为什么 GLM-5.2 744B 推理只要 ~70B dense 的成本
 - 延伸：MoE 的"显存"成本和 FLOPs 不是一回事——为什么 vLLM 跑 MoE 仍需把所有 expert 装进显存？
 
 ---
@@ -1426,7 +1426,7 @@ PROMPTS = {
 |---|---|---|
 | 2.1 | MHA / GQA / MLA KV cache | 量化 attention 进化路径 |
 | 4.2 | LoRA r=8/16/64 | 决定自己微调时怎么选 rank |
-| 4.4 | PPO vs GRPO 200 step | 理解为什么 GLM-5.1 用 GRPO |
+| 4.4 | PPO vs GRPO 200 step | 理解为什么 GLM-5.2 用 GRPO |
 
 > 共耗时 ~ 5 小时实操 + 3 小时分析。1×3090 推荐。
 

@@ -2,7 +2,7 @@
 """
 Step 08 — SFT 数据合成（OSS-Instruct 30k + Issue-PR 5k + agent 轨迹 1k）。
 
-WHAT: 用 GLM-5.1 API（或本地 Air-Instruct）按 OSS-Instruct 模板把 seed 代码段
+WHAT: 用 GLM-5.2 API（或本地 Air-Instruct）按 OSS-Instruct 模板把 seed 代码段
       改写成 (instruction, response) 对，并和 step 03/10 的真实样本混合。
 
 REQUIRES:
@@ -49,7 +49,7 @@ def main() -> int:
 
     print(f"seeds  : {seeds}")
     print(f"target : 30000 instructions → {out}")
-    print(f"teacher: GLM-5.1 API")
+    print(f"teacher: GLM-5.2 API")
     print()
     print("prompt template:")
     print("-" * 60)
